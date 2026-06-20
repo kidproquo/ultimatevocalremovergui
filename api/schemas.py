@@ -1,0 +1,88 @@
+"""Pydantic request/response models for the UVR API."""
+from __future__ import annotations
+
+from enum import Enum
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class Arch(str, Enum):
+    vr = "vr"
+    mdx = "mdx"
+    demucs = "demucs"
+
+
+class OutputFormat(str, Enum):
+    wav = "WAV"
+    flac = "FLAC"
+    mp3 = "MP3"
+
+
+class JobStatus(str, Enum):
+    queued = "queued"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+
+
+class SeparationOptions(BaseModel):
+    """Tunables accepted with a separation request. All optional with sensible
+    defaults that mirror the desktop app."""
+
+    model_config = ConfigDict(protected_namespaces=())
+
+    arch: Arch
+    model_name: str = Field(..., description="Model basename, e.g. 'UVR-MDX-NET-Inst_HQ_3'")
+
+    primary_stem_only: bool = False
+    secondary_stem_only: bool = False
+    output_format: OutputFormat = OutputFormat.wav
+    normalization: bool = False
+    denoise: bool = False
+    semitone_shift: float = 0.0
+
+    # VR-specific
+    aggression: int = 10
+    tta: bool = False
+    window_size: int = 512
+    post_process: bool = False
+    high_end_process: bool = False
+
+    # MDX-specific
+    segment_size: int = 256
+    overlap: Optional[float] = None  # None => "Default"
+
+
+class ModelInfo(BaseModel):
+    arch: Arch
+    name: str  # model basename used for separation (the value ModelData resolves)
+    download_name: str  # friendly catalog name used by the download endpoint
+    filename: str
+    installed: bool
+
+
+class OutputFile(BaseModel):
+    stem: str
+    filename: str
+    url: str
+
+
+class JobInfo(BaseModel):
+    id: str
+    kind: str  # "separation" | "download"
+    status: JobStatus
+    progress: float = 0.0
+    message: str = ""
+    log: str = ""
+    error: Optional[str] = None
+    input_filename: Optional[str] = None
+    options: Optional[dict] = None
+    outputs: list[OutputFile] = Field(default_factory=list)
+    created_at: float = 0.0
+    updated_at: float = 0.0
+
+
+class DownloadRequest(BaseModel):
+    arch: Arch
+    name: str = Field(..., description="Display name from the download list")

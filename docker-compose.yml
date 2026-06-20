@@ -1,0 +1,32 @@
+# UVR web service — CPU-only deployment.
+#   docker compose up --build
+# Then open http://localhost:8080
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      # The web container talks to the API server-side; browser hits it via the
+      # nginx /api proxy, so wide-open CORS is unnecessary but harmless here.
+      UVR_CORS_ORIGINS: "*"
+      UVR_DATA_DIR: /data
+    volumes:
+      # Persist downloaded model weights and job inputs/outputs across restarts.
+      - ./models:/app/models
+      - uvr-data:/data
+    # Separation is CPU/RAM heavy; raise limits to taste.
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+    ports:
+      # Localhost only; fronted by Caddy at dabba.princesamuel.me/uvr.
+      - "127.0.0.1:8400:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  uvr-data:
