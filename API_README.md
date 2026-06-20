@@ -136,3 +136,16 @@ Key design points:
   separate proxy.
 - **In-memory job store** — jobs are lost on API restart (output files persist
   on the volume). A multi-replica setup would need a shared store/queue.
+
+## Resource requirements
+
+CPU separation of a full song peaks around **~2 GB RAM** with the lean defaults
+(`api/separation.py` disables onnxruntime's CPU memory arena and caps threads via
+`UVR_NUM_THREADS`/`OMP_NUM_THREADS`). The api container is capped at `mem_limit:
+4g` in `docker-compose.yml` so a single large job can't trigger a host-wide OOM
+that takes down other services — the cgroup contains any kill to this container.
+
+If you hit OOMs (very long tracks, or several models): keep `mdx_segment_size` at
+its default `256` for most models (a value matching the model's `dim_t` uses the
+light onnxruntime path; a mismatch falls back to a much heavier onnx2pytorch
+path), lower `UVR_NUM_THREADS`, or raise `mem_limit` if the host has the RAM.

@@ -46,6 +46,38 @@ def _patch_screeninfo():
     screeninfo.get_monitors = safe_get_monitors
 
 
+def _limit_memory():
+    """Cap inference memory/threads. On a small CPU host, MDX separation of a
+    full song otherwise peaks at ~4GB and can OOM-kill the process. The biggest
+    win is disabling onnxruntime's CPU memory arena (it grows per-chunk and never
+    shrinks); capping threads also trims per-thread working buffers."""
+    threads = int(os.environ.get("UVR_NUM_THREADS", "2"))
+
+    import torch
+
+    try:
+        torch.set_num_threads(threads)
+    except Exception:
+        pass
+
+    import onnxruntime as ort
+
+    original_session = ort.InferenceSession
+
+    def lean_session(*args, **kwargs):
+        if not kwargs.get("sess_options"):
+            so = ort.SessionOptions()
+            so.enable_cpu_mem_arena = False   # don't retain a growing arena
+            so.enable_mem_pattern = False
+            so.intra_op_num_threads = threads
+            kwargs["sess_options"] = so
+        return original_session(*args, **kwargs)
+
+    # separate.py calls `ort.InferenceSession(...)` at separation time; patching
+    # the module attribute now (before any run) makes it pick up the lean opts.
+    ort.InferenceSession = lean_session
+
+
 def _load_engine():
     global _uvr, _consts, _separate
     if _uvr is not None:
@@ -56,6 +88,7 @@ def _load_engine():
             _consts = importlib.import_module("gui_data.constants")
             _separate = importlib.import_module("separate")
             _uvr = importlib.import_module("UVR")
+            _limit_memory()
     return _uvr, _consts, _separate
 
 

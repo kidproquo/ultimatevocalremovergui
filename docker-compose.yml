@@ -1,6 +1,6 @@
 # UVR web service — CPU-only deployment.
 #   docker compose up --build
-# Then open http://localhost:8080
+# Then open http://localhost:8400
 services:
   api:
     build:
@@ -11,11 +11,20 @@ services:
       # nginx /api proxy, so wide-open CORS is unnecessary but harmless here.
       UVR_CORS_ORIGINS: "*"
       UVR_DATA_DIR: /data
+      # Cap inference threads (also caps per-thread memory). See api/separation.py.
+      UVR_NUM_THREADS: "2"
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
     volumes:
       # Persist downloaded model weights and job inputs/outputs across restarts.
       - ./models:/app/models
       - uvr-data:/data
-    # Separation is CPU/RAM heavy; raise limits to taste.
+    # Separation is CPU/RAM heavy. Cap container memory so one large job can't
+    # trigger a host-wide OOM that kills OTHER services on this box — the cgroup
+    # contains the kill to this container, which then restarts on its own.
+    # Tune to the host; ~4G fits a typical song with the lean ORT settings.
+    mem_limit: 4g
+    mem_reservation: 1g
     restart: unless-stopped
 
   web:
