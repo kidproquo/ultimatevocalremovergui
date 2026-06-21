@@ -27,37 +27,64 @@ export function MiniPlayer({ track, onClose }: { track: NowPlaying | null; onClo
   const [cur, setCur] = useState(0);
   const [dur, setDur] = useState(0);
   const [loading, setLoading] = useState(false);
+  // Object URL of the fetched blob — reused for both playback and download so
+  // the file is pulled over the network exactly once.
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!track || !containerRef.current) return;
+    let cancelled = false;
+    let objectUrl: string | null = null;
     setLoading(true);
     setCur(0);
     setDur(0);
-    const ws = WaveSurfer.create({
-      container: containerRef.current,
-      url: track.url,
-      height: 40,
-      waveColor: theme.palette.action.disabled,
-      progressColor: theme.palette.primary.main,
-      cursorColor: theme.palette.secondary.main,
-      barWidth: 2,
-      barGap: 1,
-      barRadius: 2,
-    });
-    wsRef.current = ws;
-    ws.on("ready", () => {
-      setDur(ws.getDuration());
-      setLoading(false);
-      ws.play();
-    });
-    ws.on("timeupdate", (t: number) => setCur(t));
-    ws.on("play", () => setPlaying(true));
-    ws.on("pause", () => setPlaying(false));
-    ws.on("finish", () => setPlaying(false));
-    ws.on("error", () => setLoading(false));
+    setBlobUrl(null);
+
+    // Fetch ONCE; wavesurfer v7 otherwise downloads the file twice (audio
+    // element + waveform peaks). A local object URL serves both with no network.
+    fetch(track.url)
+      .then((r) => {
+        if (!r.ok) throw new Error(`${r.status}`);
+        return r.blob();
+      })
+      .then((blob) => {
+        if (cancelled || !containerRef.current) return;
+        objectUrl = URL.createObjectURL(blob);
+        setBlobUrl(objectUrl);
+        const ws = WaveSurfer.create({
+          container: containerRef.current,
+          url: objectUrl,
+          height: 40,
+          waveColor: theme.palette.action.disabled,
+          progressColor: theme.palette.primary.main,
+          cursorColor: theme.palette.secondary.main,
+          barWidth: 2,
+          barGap: 1,
+          barRadius: 2,
+        });
+        wsRef.current = ws;
+        ws.on("ready", () => {
+          setDur(ws.getDuration());
+          setLoading(false);
+          ws.play();
+        });
+        ws.on("timeupdate", (t: number) => setCur(t));
+        ws.on("play", () => setPlaying(true));
+        ws.on("pause", () => setPlaying(false));
+        ws.on("finish", () => setPlaying(false));
+        ws.on("error", () => setLoading(false));
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false);
+      });
+
     return () => {
-      ws.destroy();
-      wsRef.current = null;
+      cancelled = true;
+      if (wsRef.current) {
+        wsRef.current.destroy();
+        wsRef.current = null;
+      }
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [track?.url]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -111,7 +138,7 @@ export function MiniPlayer({ track, onClose }: { track: NowPlaying | null; onClo
           {fmt(cur)} / {fmt(dur)}
         </Typography>
         <Tooltip title="Download">
-          <IconButton size="small" component="a" href={track.url} download={track.filename}>
+          <IconButton size="small" component="a" href={blobUrl ?? track.url} download={track.filename}>
             <DownloadIcon />
           </IconButton>
         </Tooltip>
