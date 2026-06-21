@@ -37,65 +37,6 @@ function fmtSecs(s: number): string {
   return `${s.toFixed(s < 10 ? 1 : 0)}s`;
 }
 
-// Render the settings a job used, from its persisted options. Only arch-relevant
-// fields are shown, so it reflects what actually took effect (and survives log
-// truncation, since options are stored in full).
-function SettingsChips({ options }: { options: Record<string, unknown> }) {
-  const o = options;
-  const arch = String(o.arch ?? "");
-  const stems = o.primary_stem_only
-    ? "primary only"
-    : o.secondary_stem_only
-    ? "secondary only"
-    : "both stems";
-
-  const rows: [string, unknown][] = [
-    ["model", o.model_name],
-    ["arch", arch.toUpperCase()],
-    ["format", o.output_format],
-    ["stems", stems],
-  ];
-  if (o.normalization) rows.push(["normalized", "yes"]);
-  if (o.denoise) rows.push(["denoise", "yes"]);
-  if (Number(o.semitone_shift) !== 0) rows.push(["pitch", `${o.semitone_shift} st`]);
-
-  if (arch === "mdx") {
-    rows.push(["segment", o.segment_size]);
-    rows.push(["overlap", o.overlap ?? "default"]);
-  } else if (arch === "vr") {
-    rows.push(["aggression", o.aggression]);
-    rows.push(["window", o.window_size]);
-    if (o.tta) rows.push(["TTA", "on"]);
-    if (o.post_process) rows.push(["post-proc", "on"]);
-    if (o.high_end_process) rows.push(["high-end", "on"]);
-  } else if (arch === "demucs") {
-    rows.push(["shifts", o.shifts]);
-    rows.push(["overlap", o.overlap ?? "default"]);
-    rows.push(["segment", o.demucs_segment ?? "default"]);
-  }
-
-  return (
-    <Box sx={{ mb: 1.5 }}>
-      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-        Settings used
-      </Typography>
-      <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-        {rows
-          .filter(([, v]) => v !== undefined && v !== null && v !== "")
-          .map(([k, v]) => (
-            <Chip
-              key={k}
-              size="small"
-              variant="outlined"
-              label={`${k}: ${v}`}
-              sx={{ fontSize: 11, height: 22 }}
-            />
-          ))}
-      </Stack>
-    </Box>
-  );
-}
-
 function JobCard({
   job,
   onDeleted,
@@ -261,10 +202,6 @@ function JobCard({
           <Typography variant="body2" color="error" sx={{ mb: 1 }}>
             {job.error}
           </Typography>
-        )}
-
-        {job.kind === "separation" && job.options && (
-          <SettingsChips options={job.options} />
         )}
 
         {job.outputs.length > 0 && (
