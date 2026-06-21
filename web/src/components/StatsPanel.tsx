@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Box,
   Card,
@@ -9,19 +10,63 @@ import {
   TableCell,
   TableHead,
   TableRow,
+  TableSortLabel,
   Tooltip,
   Typography,
 } from "@mui/material";
 import SpeedIcon from "@mui/icons-material/Speed";
 import { humanBytes } from "../api";
-import type { StatsInfo, SystemInfo } from "../types";
+import type { StatRow, StatsInfo, SystemInfo } from "../types";
+
+type SortKey = "model" | "device" | "runs" | "sec_per_audio_min" | "avg_peak_mb";
+
+// Columns where 0 means "no data" — these always sort to the bottom.
+const NO_DATA_ZERO: SortKey[] = ["sec_per_audio_min", "avg_peak_mb"];
+
+function sortValue(r: StatRow, key: SortKey): number | string {
+  if (key === "model") return r.model.toLowerCase();
+  if (key === "device") return r.device;
+  if (key === "runs") return r.completed;
+  return r[key];
+}
 
 // Per-host processing performance, accumulated over time: how long each model
 // takes per minute of audio on this machine, and its peak memory.
 export function StatsPanel({ stats, system }: { stats: StatsInfo | null; system: SystemInfo | null }) {
-  const rows = stats?.rows ?? [];
+  const allRows = stats?.rows ?? [];
   // The device column is only meaningful when more than one device appears.
-  const showDevice = new Set(rows.map((r) => r.device)).size > 1;
+  const showDevice = new Set(allRows.map((r) => r.device)).size > 1;
+
+  // Default: fastest first (s/min ascending); rows with no data sink to the bottom.
+  const [sortBy, setSortBy] = useState<SortKey>("sec_per_audio_min");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  const sortHeader = (key: SortKey) => () => {
+    if (sortBy === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortBy(key);
+      setSortDir(key === "model" ? "asc" : key === "sec_per_audio_min" ? "asc" : "desc");
+    }
+  };
+
+  const rows = [...allRows].sort((a, b) => {
+    const noData = NO_DATA_ZERO.includes(sortBy);
+    const am = noData && Number(a[sortBy as keyof StatRow]) <= 0;
+    const bm = noData && Number(b[sortBy as keyof StatRow]) <= 0;
+    if (am && bm) return 0;
+    if (am) return 1; // missing always last, regardless of direction
+    if (bm) return -1;
+    const av = sortValue(a, sortBy);
+    const bv = sortValue(b, sortBy);
+    const r = typeof av === "string" ? av.localeCompare(bv as string) : (av as number) - (bv as number);
+    return sortDir === "asc" ? r : -r;
+  });
+
+  const sortable = (key: SortKey, label: React.ReactNode) => (
+    <TableSortLabel active={sortBy === key} direction={sortBy === key ? sortDir : "asc"} onClick={sortHeader(key)}>
+      {label}
+    </TableSortLabel>
+  );
 
   const hostLabel = system
     ? system.gpu_available
@@ -82,21 +127,21 @@ export function StatsPanel({ stats, system }: { stats: StatsInfo | null; system:
             <Table size="small" sx={{ minWidth: 320 }}>
               <TableHead>
                 <TableRow>
-                  <TableCell>Model</TableCell>
-                  {showDevice && <TableCell align="center">Device</TableCell>}
+                  <TableCell>{sortable("model", "Model")}</TableCell>
+                  {showDevice && <TableCell align="center">{sortable("device", "Device")}</TableCell>}
                   <TableCell align="right">
                     <Tooltip title="Completed runs (failed/cancelled in red)">
-                      <span>Runs</span>
+                      <span>{sortable("runs", "Runs")}</span>
                     </Tooltip>
                   </TableCell>
                   <TableCell align="right">
                     <Tooltip title="Avg processing seconds per minute of audio on full runs (lower = faster; format-independent)">
-                      <span>s / min</span>
+                      <span>{sortable("sec_per_audio_min", "s / min")}</span>
                     </Tooltip>
                   </TableCell>
                   <TableCell align="right">
                     <Tooltip title="Peak memory — average (worst-case)">
-                      <span>Peak mem</span>
+                      <span>{sortable("avg_peak_mb", "Peak mem")}</span>
                     </Tooltip>
                   </TableCell>
                 </TableRow>
