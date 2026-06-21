@@ -114,15 +114,23 @@ function JobCard({
               label={job.status}
               color={STATUS_COLOR[job.status]}
               variant="outlined"
+              sx={{ flexShrink: 0 }}
             />
-            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+            <Typography
+              variant="body2"
+              noWrap
+              sx={{ fontWeight: 600, flexGrow: 1, minWidth: 0 }}
+            >
               {job.kind === "download"
                 ? job.message
                 : job.input_filename || job.id}
             </Typography>
-            <Box flexGrow={1} />
             {elapsed != null ? (
-              <Typography variant="caption" sx={{ color: "info.main", fontVariantNumeric: "tabular-nums" }}>
+              <Typography
+                variant="caption"
+                noWrap
+                sx={{ color: "info.main", fontVariantNumeric: "tabular-nums", flexShrink: 0 }}
+              >
                 ⏱ {fmtSecs(elapsed)}
                 {job.device ? ` · ${job.device.toUpperCase()}` : ""}
               </Typography>
@@ -137,28 +145,38 @@ function JobCard({
                       : ""
                   }
                 >
-                  <Typography variant="caption" color="text.secondary">
+                  <Typography variant="caption" color="text.secondary" noWrap sx={{ flexShrink: 0 }}>
                     {fmtSecs(job.duration_sec)}
                     {job.device ? ` · ${job.device.toUpperCase()}` : ""}
                   </Typography>
                 </Tooltip>
               )
             )}
-            {job.peak_mem_bytes > 0 && (
-              <Tooltip title="Peak memory used by this job">
-                <Typography variant="caption" color="text.secondary">
-                  {humanBytes(job.peak_mem_bytes)} mem
+            {/* Secondary metadata — hidden on phones (also in the details/log) */}
+            <Box
+              sx={{ display: { xs: "none", sm: "flex" }, alignItems: "center", gap: 1, minWidth: 0 }}
+            >
+              {job.peak_mem_bytes > 0 && (
+                <Tooltip title="Peak memory used by this job">
+                  <Typography variant="caption" color="text.secondary" noWrap>
+                    {humanBytes(job.peak_mem_bytes)} mem
+                  </Typography>
+                </Tooltip>
+              )}
+              {job.bytes > 0 && (
+                <Typography variant="caption" color="text.secondary" noWrap>
+                  {humanBytes(job.bytes)}
                 </Typography>
-              </Tooltip>
-            )}
-            {job.bytes > 0 && (
-              <Typography variant="caption" color="text.secondary">
-                {humanBytes(job.bytes)}
+              )}
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                noWrap
+                sx={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }}
+              >
+                {(job.options?.model_name as string) || ""}
               </Typography>
-            )}
-            <Typography variant="caption" color="text.secondary">
-              {(job.options?.model_name as string) || ""}
-            </Typography>
+            </Box>
             {active && (
               <Tooltip title="Cancel job">
                 <IconButton size="small" color="warning" onClick={cancel}>
