@@ -23,6 +23,46 @@ Then open **http://localhost:8400**.
 - Model weights persist in `./models` (mounted into the API container).
 - Job inputs/outputs persist in the `uvr-data` named volume.
 
+## GPU acceleration
+
+The app **auto-detects** the compute device at runtime (CUDA → MPS → CPU); the
+device is shown as a chip in the UI header and per-job in the job log. There is
+**one Dockerfile** — only the build args differ per target, wired by a compose
+override. No code changes.
+
+**x86_64 + NVIDIA** (requires NVIDIA driver + the
+[nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/)):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+```
+
+This builds with `BASE_IMAGE=nvidia/cuda:…cudnn8-runtime`, CUDA torch wheels
+(`…/whl/cu121`), and `onnxruntime-gpu`, and reserves the host GPU(s).
+
+**NVIDIA Jetson (arm64 / L4T):**
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.jetson.yml up --build
+```
+
+Edit `docker-compose.jetson.yml` first to set `BASE_IMAGE` to the
+[l4t-pytorch](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/l4t-pytorch)
+tag matching your JetPack/L4T (`cat /etc/nv_tegra_release`). `INSTALL_TORCH=0`
+there reuses the CUDA-enabled torch from the L4T base. The MDX (onnxruntime)
+path needs a Jetson `onnxruntime-gpu` wheel for GPU; VR/Demucs use torch and
+are accelerated by the base torch alone. CPU fallback still works if the GPU
+isn't visible.
+
+**Forcing the device:** set `UVR_USE_GPU` (`auto` | `1`/`on` | `0`/`off`) on the
+api service, or pass `use_gpu` (bool) per request to `/api/separate`. `GET
+/api/system` reports `{cuda, mps, device, gpu_available, torch, name}`.
+
+Non-NVIDIA GPUs (AMD/Intel) aren't supported in this Linux service: DirectML is
+Windows-only, and Intel iGPU offload would only cover the MDX path via an
+onnxruntime OpenVINO build — not worth it on older integrated graphics. Use CPU
+there.
+
 ### Serving behind a reverse proxy (subdomain or sub-path)
 
 The SPA is built with a relative base (`base: "./"`) and derives its API base

@@ -95,9 +95,81 @@ def _load_engine():
 _ARCH_TO_METHOD = {"vr": "VR_ARCH_TYPE", "mdx": "MDX_ARCH_TYPE", "demucs": "DEMUCS_ARCH_TYPE"}
 
 
-def _build_overrides(opts: SeparationOptions) -> dict[str, Any]:
+def gpu_status(separate) -> dict[str, bool]:
+    """Report what the loaded engine sees. ``separate`` is the imported module."""
+    return {
+        "cuda": bool(getattr(separate, "cuda_available", False)),
+        "mps": bool(getattr(separate, "mps_available", False)),
+    }
+
+
+_device_info_cache: dict[str, Any] | None = None
+
+
+def device_info() -> dict[str, Any]:
+    """Lightweight GPU probe for the UI — imports torch only (not the full
+    engine), cached after first call. Reports availability + the device the
+    next 'auto' job would pick + the GPU name when present."""
+    global _device_info_cache
+    if _device_info_cache is not None:
+        return _device_info_cache
+
+    info: dict[str, Any] = {"cuda": False, "mps": False, "name": None, "torch": None}
+    try:
+        import torch
+
+        info["torch"] = torch.__version__
+        info["cuda"] = bool(torch.cuda.is_available())
+        info["mps"] = bool(getattr(torch.backends, "mps", None) and torch.backends.mps.is_available())
+        if info["cuda"]:
+            try:
+                info["name"] = torch.cuda.get_device_name(0)
+            except Exception:
+                info["name"] = "CUDA device"
+    except Exception as exc:  # noqa: BLE001 - torch missing/broken => CPU
+        info["error"] = str(exc)
+
+    # What an auto job resolves to, honoring the UVR_USE_GPU env override.
+    env = os.environ.get("UVR_USE_GPU", "auto").strip().lower()
+    forced_off = env in ("0", "false", "no", "off", "cpu")
+    forced_on = env in ("1", "true", "yes", "on", "gpu")
+    detected = info["cuda"] or info["mps"]
+    use_gpu = False if forced_off else True if forced_on else detected
+    info["device"] = "cuda" if (use_gpu and info["cuda"]) else "mps" if (use_gpu and info["mps"]) else "cpu"
+    info["gpu_available"] = detected
+    info["mode"] = env
+
+    _device_info_cache = info
+    return info
+
+
+def _resolve_use_gpu(opts: SeparationOptions, separate) -> bool:
+    """Decide whether to run on GPU. Precedence: explicit request option >
+    UVR_USE_GPU env > auto-detect. "auto" enables GPU iff the engine sees one.
+
+    The engine itself then picks the concrete device (cuda/mps) — UVR.py's
+    ``ModelData`` maps a truthy is_gpu_conversion into the ``is_gpu_conversion
+    >= 0`` branch in separate.py, which selects CUDA when ``cuda_available``."""
+    available = gpu_status(separate)
+    detected = available["cuda"] or available["mps"]
+
+    if opts.use_gpu is not None:
+        return bool(opts.use_gpu)
+
+    env = os.environ.get("UVR_USE_GPU", "auto").strip().lower()
+    if env in ("0", "false", "no", "off", "cpu"):
+        return False
+    if env in ("1", "true", "yes", "on", "gpu"):
+        return True
+    return detected  # "auto"
+
+
+def _build_overrides(opts: SeparationOptions, use_gpu: bool) -> dict[str, Any]:
     """Translate a request into ``HeadlessRoot`` setting overrides."""
     overrides: dict[str, Any] = {
+        # GPU: ModelData reads is_gpu_conversion_var; truthy => engine takes the
+        # GPU branch and auto-selects cuda/mps when torch reports one available.
+        "is_gpu_conversion": use_gpu,
         "is_normalization": opts.normalization,
         "is_primary_stem_only": opts.primary_stem_only,
         "is_secondary_stem_only": opts.secondary_stem_only,
@@ -130,8 +202,15 @@ def run_separation(audio_path: str, export_path: str, opts: SeparationOptions, j
     """
     uvr, consts, separate = _load_engine()
 
-    # Inject the headless root so ModelData/engines read our settings.
-    uvr.root = HeadlessRoot(overrides=_build_overrides(opts))
+    # Resolve GPU usage (auto-detect by default) and inject the headless root so
+    # ModelData/engines read our settings.
+    use_gpu = _resolve_use_gpu(opts, separate)
+    uvr.root = HeadlessRoot(overrides=_build_overrides(opts, use_gpu))
+
+    status = gpu_status(separate)
+    device = "cuda" if (use_gpu and status["cuda"]) else "mps" if (use_gpu and status["mps"]) else "cpu"
+    job.update(message=f"Running on {device.upper()}")
+    job.append_log(f"Device: {device} (gpu requested={use_gpu}, cuda={status['cuda']}, mps={status['mps']})\n")
 
     method = getattr(consts, _ARCH_TO_METHOD[opts.arch.value])
     model = uvr.ModelData(opts.model_name, selected_process_method=method, is_dry_check=True)

@@ -43,6 +43,14 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/api/system")
+def system():
+    """Device/GPU info for the UI (cached lightweight torch probe)."""
+    from .separation import device_info
+
+    return device_info()
+
+
 @app.get("/api/models", response_model=list[ModelInfo])
 def get_models():
     return registry.list_models()
@@ -78,6 +86,7 @@ async def separate(
     high_end_process: bool = Form(False),
     segment_size: int = Form(256),
     overlap: float | None = Form(None),
+    use_gpu: bool | None = Form(None),
 ):
     opts = SeparationOptions(
         arch=arch,
@@ -95,6 +104,7 @@ async def separate(
         high_end_process=high_end_process,
         segment_size=segment_size,
         overlap=overlap,
+        use_gpu=use_gpu,
     )
 
     job = store.create(

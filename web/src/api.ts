@@ -1,4 +1,4 @@
-import type { Arch, JobInfo, ModelInfo } from "./types";
+import type { Arch, JobInfo, ModelInfo, SystemInfo } from "./types";
 
 // Derive the API base from the document's base URL so the app works both at a
 // domain root (https://host/ -> https://host/api/) and under a sub-path
@@ -18,6 +18,8 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export const api = {
+  getSystem: () => fetch(apiUrl("system")).then(json<SystemInfo>),
+
   listModels: () => fetch(apiUrl("models")).then(json<ModelInfo[]>),
 
   downloadModel: (arch: Arch, name: string) =>

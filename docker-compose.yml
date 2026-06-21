@@ -23,8 +23,14 @@ services:
     # trigger a host-wide OOM that kills OTHER services on this box — the cgroup
     # contains the kill to this container, which then restarts on its own.
     # Tune to the host; ~4G fits a typical song with the lean ORT settings.
-    mem_limit: 4g
-    mem_reservation: 1g
+    # (deploy.resources form, not legacy mem_limit, so the GPU overlay's device
+    # reservation merges cleanly — see docker-compose.gpu.yml.)
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+        reservations:
+          memory: 1g
     restart: unless-stopped
 
   web:

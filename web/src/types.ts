@@ -1,5 +1,15 @@
 export type Arch = "vr" | "mdx" | "demucs";
 
+export interface SystemInfo {
+  cuda: boolean;
+  mps: boolean;
+  name: string | null;
+  torch: string | null;
+  device: "cuda" | "mps" | "cpu";
+  gpu_available: boolean;
+  mode: string; // UVR_USE_GPU: auto | on | off
+}
+
 export interface ModelInfo {
   arch: Arch;
   name: string; // basename used for separation

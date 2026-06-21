@@ -149,10 +149,14 @@ def download_model(arch: Arch, display_name: str, job=None) -> list[str]:
 
     elif arch == Arch.demucs:
         listing = data.get("demucs_download_list", {})
-        files = _find(listing, display_name)
+        key, files = _find_keyed(listing, display_name)
         if not files:
             raise ValueError(f"Unknown Demucs model: {display_name}")
-        is_newer = any(t in display_name for t in ("v3", "v4"))
+        # The version tag ("v3"/"v4") is in the catalog KEY ("Demucs v4: …"), not
+        # the friendly name the UI sends ("htdemucs_ft"). v3/v4 weights live under
+        # v3_v4_repo/ — checking display_name here would misfile them and the
+        # installed-check (which uses the key) would never find them.
+        is_newer = any(t in key for t in ("v3", "v4"))
         base_dir = DEMUCS_NEWER_REPO_DIR if is_newer else DEMUCS_MODELS_DIR
         items = list(files.items())
         for i, (fname, url) in enumerate(items):
@@ -166,8 +170,14 @@ def download_model(arch: Arch, display_name: str, job=None) -> list[str]:
 
 def _find(listing: dict, download_name: str):
     """Resolve a catalog entry by its full key or its friendly (post-': ') name."""
+    return _find_keyed(listing, download_name)[1]
+
+
+def _find_keyed(listing: dict, download_name: str):
+    """Like ``_find`` but also returns the matched catalog key (which carries the
+    Demucs version tag). Returns ``(key, value)`` or ``(None, None)``."""
     for display, value in listing.items():
         candidate = display.split(": ", 1)[-1]
         if display == download_name or candidate == download_name:
-            return value
-    return None
+            return display, value
+    return None, None

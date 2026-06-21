@@ -41,6 +41,8 @@ class SeparationOptions(BaseModel):
     normalization: bool = False
     denoise: bool = False
     semitone_shift: float = 0.0
+    # None => auto-detect (GPU if available, else CPU); True/False forces it.
+    use_gpu: Optional[bool] = None
 
     # VR-specific
     aggression: int = 10
