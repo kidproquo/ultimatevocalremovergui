@@ -27,8 +27,12 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import TuneIcon from "@mui/icons-material/Tune";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { api, humanBytes } from "../api";
-import type { Arch, InputInfo, ModelInfo } from "../types";
+import type { Arch, HelpTexts, InputInfo, ModelDetail, ModelInfo } from "../types";
+import { usePersisted } from "../usePersisted";
+import { HelpTip } from "./HelpTip";
+import { ModelInfoDialog } from "./ModelInfoDialog";
 
 const ARCHS: { value: Arch; label: string }[] = [
   { value: "mdx", label: "MDX-Net" },
@@ -38,10 +42,12 @@ const ARCHS: { value: Arch; label: string }[] = [
 
 const FORMATS = ["WAV", "FLAC", "MP3"];
 const WINDOW_SIZES = [320, 512, 1024];
+const NEW_INPUT = "__new__";
 
 interface Props {
   models: ModelInfo[];
   inputs: InputInfo[];
+  help: HelpTexts;
   preset: Record<string, unknown> | null;
   busy: boolean;
   onPresetApplied: () => void;
@@ -50,11 +56,10 @@ interface Props {
   onJobCreated: () => void;
 }
 
-const NEW_INPUT = "__new__";
-
 export function SeparationForm({
   models,
   inputs,
+  help,
   preset,
   busy,
   onPresetApplied,
@@ -62,44 +67,45 @@ export function SeparationForm({
   onInputsChanged,
   onJobCreated,
 }: Props) {
-  const [arch, setArch] = useState<Arch>("mdx");
-  const [modelName, setModelName] = useState("");
-  // Input source: an existing input id, or NEW_INPUT (upload a new file).
+  // Persisted form state — survives reloads.
+  const [arch, setArch] = usePersisted<Arch>("uvr.arch", "mdx");
+  const [modelName, setModelName] = usePersisted("uvr.model", "");
+  const [format, setFormat] = usePersisted("uvr.format", "WAV");
+  const [primaryOnly, setPrimaryOnly] = usePersisted("uvr.primaryOnly", false);
+  const [secondaryOnly, setSecondaryOnly] = usePersisted("uvr.secondaryOnly", false);
+  const [normalization, setNormalization] = usePersisted("uvr.normalize", false);
+  const [denoise, setDenoise] = usePersisted("uvr.denoise", false);
+  const [pitchShift, setPitchShift] = usePersisted("uvr.pitch", "0");
+  const [overlap, setOverlap] = usePersisted("uvr.overlap", "");
+  const [segmentSize, setSegmentSize] = usePersisted("uvr.segment", "256");
+  const [aggression, setAggression] = usePersisted("uvr.aggression", "10");
+  const [windowSize, setWindowSize] = usePersisted("uvr.window", "512");
+  const [tta, setTta] = usePersisted("uvr.tta", false);
+  const [postProcess, setPostProcess] = usePersisted("uvr.postProcess", false);
+  const [highEnd, setHighEnd] = usePersisted("uvr.highEnd", false);
+  const [shifts, setShifts] = usePersisted("uvr.shifts", "2");
+  const [demucsSegment, setDemucsSegment] = usePersisted("uvr.demucsSegment", "");
+
+  // Ephemeral: input choice + upload + model-info dialog.
   const [inputId, setInputId] = useState<string>(NEW_INPUT);
   const [file, setFile] = useState<File | null>(null);
-  const [format, setFormat] = useState("WAV");
-  const [primaryOnly, setPrimaryOnly] = useState(false);
-  const [secondaryOnly, setSecondaryOnly] = useState(false);
-  const [normalization, setNormalization] = useState(false);
-  const [denoise, setDenoise] = useState(false);
-
-  // Advanced — shared
-  const [pitchShift, setPitchShift] = useState("0");
-  const [overlap, setOverlap] = useState(""); // "" => Default (MDX & Demucs)
-  // Advanced — MDX
-  const [segmentSize, setSegmentSize] = useState("256");
-  // Advanced — VR
-  const [aggression, setAggression] = useState("10");
-  const [windowSize, setWindowSize] = useState("512");
-  const [tta, setTta] = useState(false);
-  const [postProcess, setPostProcess] = useState(false);
-  const [highEnd, setHighEnd] = useState(false);
-  // Advanced — Demucs
-  const [shifts, setShifts] = useState("2");
-  const [demucsSegment, setDemucsSegment] = useState(""); // "" => Default
-
   const [submitting, setSubmitting] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [detail, setDetail] = useState<ModelDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
-  // Apply settings lifted from a past job (one-shot). Input choice is left as-is
-  // so the user picks which audio to run these settings against.
+  const archModels = useMemo(() => models.filter((m) => m.arch === arch), [models, arch]);
+  const selected = archModels.find((m) => m.name === modelName);
+  const usingNew = inputId === NEW_INPUT;
+
+  // Apply settings lifted from a past job (one-shot).
   useEffect(() => {
     if (!preset) return;
-    const s = (k: string, fallback = "") =>
-      preset[k] !== undefined && preset[k] !== null ? String(preset[k]) : fallback;
+    const s = (k: string, fb = "") =>
+      preset[k] !== undefined && preset[k] !== null ? String(preset[k]) : fb;
     const b = (k: string) => preset[k] === true || preset[k] === "true";
-
     if (preset.arch) setArch(preset.arch as Arch);
     if (preset.model_name) setModelName(String(preset.model_name));
     if (preset.output_format) setFormat(String(preset.output_format));
@@ -108,44 +114,43 @@ export function SeparationForm({
     setNormalization(b("normalization"));
     setDenoise(b("denoise"));
     setPitchShift(s("semitone_shift", "0"));
-    // MDX
     setSegmentSize(s("segment_size", "256"));
     setOverlap(preset.overlap != null ? String(preset.overlap) : "");
-    // VR
     setAggression(s("aggression", "10"));
     setWindowSize(s("window_size", "512"));
     setTta(b("tta"));
     setPostProcess(b("post_process"));
     setHighEnd(b("high_end_process"));
-    // Demucs
     setShifts(s("shifts", "2"));
     setDemucsSegment(preset.demucs_segment != null ? String(preset.demucs_segment) : "");
-
     setError(null);
     onPresetApplied();
-  }, [preset, onPresetApplied]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset]);
 
-  const archModels = useMemo(
-    () => models.filter((m) => m.arch === arch),
-    [models, arch]
-  );
-  const selected = archModels.find((m) => m.name === modelName);
-
-  const usingNew = inputId === NEW_INPUT;
+  const showModelInfo = async () => {
+    if (!modelName) return;
+    setInfoOpen(true);
+    setDetailLoading(true);
+    try {
+      setDetail(await api.getModelDetail(arch, modelName));
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
 
   const submit = async () => {
     setError(null);
     if (usingNew && !file) return setError("Choose an audio file to upload.");
-    if (!usingNew && !inputs.some((i) => i.id === inputId))
-      return setError("Select an input.");
+    if (!usingNew && !inputs.some((i) => i.id === inputId)) return setError("Select an input.");
     if (!modelName) return setError("Choose a model.");
-    if (!selected?.installed)
-      return setError("Model is not installed — download it first.");
+    if (!selected?.installed) return setError("Model is not installed — download it first.");
 
     setSubmitting(true);
     try {
       const form = new FormData();
-      // Reuse an existing input, or upload a new one (retained for future jobs).
       if (usingNew && file) form.append("file", file);
       else form.append("input_id", inputId);
       form.append("arch", arch);
@@ -156,9 +161,6 @@ export function SeparationForm({
       form.append("normalization", String(normalization));
       form.append("denoise", String(denoise));
       form.append("semitone_shift", pitchShift || "0");
-
-      // Only send the params that apply to the chosen architecture, so the
-      // recorded job settings reflect what actually took effect.
       if (arch === "mdx") {
         form.append("segment_size", segmentSize || "256");
         if (overlap !== "") form.append("overlap", overlap);
@@ -173,10 +175,8 @@ export function SeparationForm({
         if (overlap !== "") form.append("overlap", overlap);
         if (demucsSegment !== "") form.append("demucs_segment", demucsSegment);
       }
-
       await api.separate(form);
       onJobCreated();
-      // A new upload became a reusable input — refresh the list.
       if (usingNew) {
         setFile(null);
         onInputsChanged();
@@ -188,26 +188,12 @@ export function SeparationForm({
     }
   };
 
-  const deleteInput = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!window.confirm("Delete this input file? Existing job outputs are kept."))
-      return;
-    try {
-      await api.deleteInput(id);
-      if (inputId === id) setInputId(NEW_INPUT);
-      onInputsChanged();
-    } catch (err) {
-      setError(String(err instanceof Error ? err.message : err));
-    }
-  };
-
   const download = async () => {
     if (!selected) return;
     setDownloading(true);
     setError(null);
     try {
       await api.downloadModel(arch, selected.download_name);
-      // Poll models until it shows installed (download runs as a job).
       const started = Date.now();
       const t = setInterval(async () => {
         onModelsChanged();
@@ -220,16 +206,42 @@ export function SeparationForm({
     }
   };
 
-  const num = (label: string, value: string, setter: (v: string) => void, props = {}) => (
-    <TextField
-      label={label}
-      type="number"
-      size="small"
-      value={value}
-      onChange={(e) => setter(e.target.value)}
-      fullWidth
-      {...props}
-    />
+  const deleteInput = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm("Delete this input file? Existing job outputs are kept.")) return;
+    try {
+      await api.deleteInput(id);
+      if (inputId === id) setInputId(NEW_INPUT);
+      onInputsChanged();
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+    }
+  };
+
+  // Numeric field with an inline help icon.
+  const num = (label: string, value: string, setter: (v: string) => void, helpKey: string, props = {}) => (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+      <TextField
+        label={label}
+        type="number"
+        size="small"
+        value={value}
+        onChange={(e) => setter(e.target.value)}
+        fullWidth
+        {...props}
+      />
+      <HelpTip text={help[helpKey]} />
+    </Box>
+  );
+
+  const toggle = (label: string, checked: boolean, setter: (v: boolean) => void, helpKey: string) => (
+    <Box sx={{ display: "flex", alignItems: "center" }}>
+      <FormControlLabel
+        control={<Switch checked={checked} onChange={(e) => setter(e.target.checked)} />}
+        label={label}
+      />
+      <HelpTip text={help[helpKey]} />
+    </Box>
   );
 
   return (
@@ -258,14 +270,10 @@ export function SeparationForm({
             </Select>
           </FormControl>
 
-          <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+          <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
             <FormControl fullWidth size="small">
               <InputLabel>Model</InputLabel>
-              <Select
-                label="Model"
-                value={modelName}
-                onChange={(e) => setModelName(e.target.value)}
-              >
+              <Select label="Model" value={modelName} onChange={(e) => setModelName(e.target.value)}>
                 {archModels.map((m) => (
                   <MenuItem key={m.name} value={m.name}>
                     {m.installed ? "● " : "○ "}
@@ -274,6 +282,13 @@ export function SeparationForm({
                 ))}
               </Select>
             </FormControl>
+            <Tooltip title="Model info">
+              <span>
+                <IconButton color="info" disabled={!modelName} onClick={showModelInfo}>
+                  <InfoOutlinedIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
             <Tooltip title={selected?.installed ? "Installed" : "Download model"}>
               <span>
                 <IconButton
@@ -310,11 +325,7 @@ export function SeparationForm({
                     <Typography variant="caption" color="text.secondary">
                       {humanBytes(i.bytes)}
                     </Typography>
-                    <IconButton
-                      size="small"
-                      color="error"
-                      onClick={(e) => deleteInput(i.id, e)}
-                    >
+                    <IconButton size="small" color="error" onClick={(e) => deleteInput(i.id, e)}>
                       <DeleteOutlineIcon fontSize="small" />
                     </IconButton>
                   </Box>
@@ -324,12 +335,7 @@ export function SeparationForm({
           </FormControl>
 
           {usingNew && (
-            <Button
-              component="label"
-              variant="outlined"
-              startIcon={<UploadFileIcon />}
-              sx={{ justifyContent: "flex-start" }}
-            >
+            <Button component="label" variant="outlined" startIcon={<UploadFileIcon />} sx={{ justifyContent: "flex-start" }}>
               {file ? file.name : "Choose audio file"}
               <input
                 hidden
@@ -340,46 +346,27 @@ export function SeparationForm({
             </Button>
           )}
 
-          <FormControl fullWidth size="small">
-            <InputLabel>Output format</InputLabel>
-            <Select
-              label="Output format"
-              value={format}
-              onChange={(e) => setFormat(e.target.value)}
-            >
-              {FORMATS.map((f) => (
-                <MenuItem key={f} value={f}>
-                  {f}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Output format</InputLabel>
+              <Select label="Output format" value={format} onChange={(e) => setFormat(e.target.value)}>
+                {FORMATS.map((f) => (
+                  <MenuItem key={f} value={f}>
+                    {f}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <HelpTip text={help.output_format} />
+          </Box>
 
           <Divider flexItem />
 
           <Stack>
-            <FormControlLabel
-              control={
-                <Switch checked={primaryOnly} onChange={(e) => setPrimaryOnly(e.target.checked)} />
-              }
-              label="Primary stem only"
-            />
-            <FormControlLabel
-              control={
-                <Switch checked={secondaryOnly} onChange={(e) => setSecondaryOnly(e.target.checked)} />
-              }
-              label="Secondary stem only"
-            />
-            <FormControlLabel
-              control={
-                <Switch checked={normalization} onChange={(e) => setNormalization(e.target.checked)} />
-              }
-              label="Normalize output"
-            />
-            <FormControlLabel
-              control={<Switch checked={denoise} onChange={(e) => setDenoise(e.target.checked)} />}
-              label="Denoise"
-            />
+            {toggle("Primary stem only", primaryOnly, setPrimaryOnly, "primary_stem_only")}
+            {toggle("Secondary stem only", secondaryOnly, setSecondaryOnly, "secondary_stem_only")}
+            {toggle("Normalize output", normalization, setNormalization, "normalization")}
+            {toggle("Denoise", denoise, setDenoise, "denoise")}
           </Stack>
 
           {/* Arch-aware advanced parameters */}
@@ -394,62 +381,52 @@ export function SeparationForm({
               <Stack spacing={2}>
                 {arch === "mdx" && (
                   <>
-                    {num("Segment size", segmentSize, setSegmentSize, { inputProps: { min: 32, step: 32 } })}
-                    {num("Overlap (blank = default)", overlap, setOverlap, {
+                    {num("Segment size", segmentSize, setSegmentSize, "segment_size", { inputProps: { min: 32, step: 32 } })}
+                    {num("Overlap (blank = default)", overlap, setOverlap, "overlap", {
                       inputProps: { min: 0, max: 0.99, step: 0.05 },
                       placeholder: "Default",
                     })}
                   </>
                 )}
-
                 {arch === "vr" && (
                   <>
-                    {num("Aggression (0–100)", aggression, setAggression, { inputProps: { min: 0, max: 100 } })}
-                    <FormControl fullWidth size="small">
-                      <InputLabel>Window size</InputLabel>
-                      <Select label="Window size" value={windowSize} onChange={(e) => setWindowSize(e.target.value)}>
-                        {WINDOW_SIZES.map((w) => (
-                          <MenuItem key={w} value={String(w)}>
-                            {w}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                    <FormControlLabel
-                      control={<Switch checked={tta} onChange={(e) => setTta(e.target.checked)} />}
-                      label="TTA (test-time augmentation)"
-                    />
-                    <FormControlLabel
-                      control={<Switch checked={postProcess} onChange={(e) => setPostProcess(e.target.checked)} />}
-                      label="Post-process"
-                    />
-                    <FormControlLabel
-                      control={<Switch checked={highEnd} onChange={(e) => setHighEnd(e.target.checked)} />}
-                      label="High-end process"
-                    />
+                    {num("Aggression (0–100)", aggression, setAggression, "aggression", { inputProps: { min: 0, max: 100 } })}
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                      <FormControl fullWidth size="small">
+                        <InputLabel>Window size</InputLabel>
+                        <Select label="Window size" value={windowSize} onChange={(e) => setWindowSize(e.target.value)}>
+                          {WINDOW_SIZES.map((w) => (
+                            <MenuItem key={w} value={String(w)}>
+                              {w}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      <HelpTip text={help.window_size} />
+                    </Box>
+                    {toggle("TTA (test-time augmentation)", tta, setTta, "tta")}
+                    {toggle("Post-process", postProcess, setPostProcess, "post_process")}
+                    {toggle("High-end process", highEnd, setHighEnd, "high_end_process")}
                   </>
                 )}
-
                 {arch === "demucs" && (
                   <>
-                    {num("Shifts", shifts, setShifts, { inputProps: { min: 0, max: 10 } })}
-                    {num("Overlap (blank = default)", overlap, setOverlap, {
+                    {num("Shifts", shifts, setShifts, "shifts", { inputProps: { min: 0, max: 10 } })}
+                    {num("Overlap (blank = default)", overlap, setOverlap, "overlap", {
                       inputProps: { min: 0, max: 0.99, step: 0.05 },
                       placeholder: "Default",
                     })}
-                    {num("Segment (blank = default)", demucsSegment, setDemucsSegment, {
+                    {num("Segment (blank = default)", demucsSegment, setDemucsSegment, "demucs_segment", {
                       inputProps: { min: 1 },
                       placeholder: "Default",
                     })}
                   </>
                 )}
-
-                {num("Pitch shift (semitones)", pitchShift, setPitchShift, { inputProps: { step: 1 } })}
+                {num("Pitch shift (semitones)", pitchShift, setPitchShift, "pitch_shift", { inputProps: { step: 1 } })}
 
                 <Typography variant="caption" color="text.secondary">
-                  Compute device is auto-detected (GPU when available, else CPU) and
-                  shown in the header — there's no manual toggle, since you'd
-                  always want the GPU when one is present.
+                  Compute device is auto-detected (GPU when available, else CPU) and shown in the header —
+                  there's no manual toggle, since you'd always want the GPU when one is present.
                 </Typography>
               </Stack>
             </AccordionDetails>
@@ -473,6 +450,8 @@ export function SeparationForm({
           </Button>
         </Stack>
       </CardContent>
+
+      <ModelInfoDialog open={infoOpen} onClose={() => setInfoOpen(false)} detail={detail} loading={detailLoading} />
     </Card>
   );
 }

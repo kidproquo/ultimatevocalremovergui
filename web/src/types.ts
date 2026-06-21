@@ -18,6 +18,22 @@ export interface ModelInfo {
   installed: boolean;
 }
 
+export interface ModelDetail {
+  arch: Arch;
+  name: string;
+  download_name: string;
+  filename: string;
+  installed: boolean;
+  bytes: number;
+  stems: string[];
+  primary_stem?: string | null;
+  secondary_stem?: string | null;
+  technical: Record<string, unknown>;
+  note?: string | null;
+}
+
+export type HelpTexts = Record<string, string>;
+
 export interface OutputFile {
   stem: string;
   filename: string;

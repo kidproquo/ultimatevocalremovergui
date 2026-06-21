@@ -6,6 +6,7 @@ data links so freshly downloaded weights are recognized by ``ModelData``.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import urllib.request
@@ -13,10 +14,12 @@ import urllib.request
 from .headless import (
     DEMUCS_MODELS_DIR,
     DEMUCS_NEWER_REPO_DIR,
+    MDX_HASH_JSON,
     MDX_MODELS_DIR,
+    VR_HASH_JSON,
     VR_MODELS_DIR,
 )
-from .schemas import Arch, ModelInfo
+from .schemas import Arch, ModelDetail, ModelInfo
 
 # UVR's public model + metadata repositories (mirrors gui_data/constants.py).
 NORMAL_REPO = "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/"
@@ -166,6 +169,81 @@ def download_model(arch: Arch, display_name: str, job=None) -> list[str]:
     # Make sure the just-downloaded weights are recognized on next separation.
     refresh_model_data()
     return saved
+
+
+# Secondary stem the model produces alongside its primary (mirrors UVR's
+# secondary_stem(): Vocals<->Instrumental, else "No <primary>").
+_STEM_PAIR = {"Vocals": "Instrumental", "Instrumental": "Vocals"}
+
+
+def _secondary_stem(primary: str) -> str:
+    return _STEM_PAIR.get(primary, f"No {primary}")
+
+
+def _model_hash(path: str) -> str:
+    """Mirror ModelData.get_model_hash: md5 of the last ~10MB (whole file fallback)."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(-10000 * 1024, 2)
+            return hashlib.md5(f.read()).hexdigest()
+    except Exception:
+        with open(path, "rb") as f:
+            return hashlib.md5(f.read()).hexdigest()
+
+
+def _load_hash_mapper(path: str) -> dict:
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (FileNotFoundError, ValueError):
+        return {}
+
+
+def model_detail(arch: Arch, name: str) -> ModelDetail:
+    """Stems + technical params for a model. Full details need the weights
+    installed (we hash the file to look up its model_data)."""
+    info = next((m for m in list_models() if m.arch == arch and m.name == name), None)
+    if info is None:
+        raise ValueError(f"Unknown {arch.value} model: {name}")
+
+    detail = ModelDetail(
+        arch=arch, name=info.name, download_name=info.download_name,
+        filename=info.filename, installed=info.installed,
+    )
+
+    if arch == Arch.demucs:
+        # Stem set is fixed by the source count; no per-file model_data to read.
+        is_2 = "UVR_Model" in name
+        detail.stems = ["Vocals", "Instrumental"] if is_2 else ["Vocals", "Drums", "Bass", "Other"]
+        detail.note = "Demucs outputs multiple stems at once."
+        if not info.installed:
+            detail.note = "Not installed — download to use."
+        return detail
+
+    base = VR_MODELS_DIR if arch == Arch.vr else MDX_MODELS_DIR
+    path = os.path.join(base, info.filename)
+    if not info.installed or not os.path.isfile(path):
+        detail.note = "Not installed — download to see stems and parameters."
+        return detail
+
+    detail.bytes = os.path.getsize(path)
+    mapper = _load_hash_mapper(VR_HASH_JSON if arch == Arch.vr else MDX_HASH_JSON)
+    data = mapper.get(_model_hash(path))
+    if not data:
+        detail.note = "Parameters not recognized for this file."
+        return detail
+
+    detail.technical = data
+    if data.get("config_yaml"):  # MDX-C / multi-stem
+        detail.note = "MDX23C model (config-driven multi-stem)."
+        primary = data.get("primary_stem")
+    else:
+        primary = data.get("primary_stem")
+    if primary:
+        detail.primary_stem = primary
+        detail.secondary_stem = _secondary_stem(primary)
+        detail.stems = [primary, detail.secondary_stem]
+    return detail
 
 
 def _find(listing: dict, download_name: str):

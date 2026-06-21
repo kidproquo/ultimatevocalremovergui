@@ -17,6 +17,7 @@ from .schemas import (
     DownloadRequest,
     InputInfo,
     JobInfo,
+    ModelDetail,
     ModelInfo,
     OutputFormat,
     SeparationOptions,
@@ -119,9 +120,46 @@ def delete_input(input_id: str):
     return {"deleted": input_id}
 
 
+@app.get("/api/help")
+def help_texts():
+    """Param help strings lifted from the desktop app's constants (source of truth)."""
+    from gui_data import constants as c
+
+    g = lambda name: getattr(c, name, "")
+    return {
+        # general
+        "output_format": g("FORMAT_SETTING_HELP"),
+        "primary_stem_only": g("SAVE_STEM_ONLY_HELP"),
+        "secondary_stem_only": g("SAVE_STEM_ONLY_HELP"),
+        "normalization": g("IS_NORMALIZATION_HELP"),
+        "denoise": g("IS_DENOISE_HELP"),
+        "pitch_shift": g("PITCH_SHIFT_HELP"),
+        # MDX
+        "segment_size": g("MDX_SEGMENT_SIZE_HELP"),
+        "overlap": g("MDX_OVERLAP_HELP") or g("OVERLAP_HELP"),
+        # VR
+        "aggression": g("AGGRESSION_SETTING_HELP"),
+        "window_size": g("WINDOW_SIZE_HELP"),
+        "tta": g("IS_TTA_HELP"),
+        "post_process": g("IS_POST_PROCESS_HELP"),
+        "high_end_process": g("IS_HIGH_END_PROCESS_HELP"),
+        # Demucs
+        "shifts": g("SHIFTS_HELP"),
+        "demucs_segment": g("SEGMENT_HELP"),
+    }
+
+
 @app.get("/api/models", response_model=list[ModelInfo])
 def get_models():
     return registry.list_models()
+
+
+@app.get("/api/models/detail", response_model=ModelDetail)
+def model_detail(arch: Arch, name: str):
+    try:
+        return registry.model_detail(arch, name)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
 
 
 @app.post("/api/models/download", response_model=JobInfo)

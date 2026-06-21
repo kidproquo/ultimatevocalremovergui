@@ -39,7 +39,8 @@ export function StatsPanel({ stats }: { stats: StatsInfo | null }) {
             No completed separations yet. Run a job to start tracking time per MB.
           </Typography>
         ) : (
-          <Table size="small">
+          <Box sx={{ overflowX: "auto" }}>
+          <Table size="small" sx={{ minWidth: 360 }}>
             <TableHead>
               <TableRow>
                 <TableCell>Model</TableCell>
@@ -73,6 +74,7 @@ export function StatsPanel({ stats }: { stats: StatsInfo | null }) {
               ))}
             </TableBody>
           </Table>
+          </Box>
         )}
       </CardContent>
     </Card>

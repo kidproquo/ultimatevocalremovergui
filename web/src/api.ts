@@ -1,7 +1,9 @@
 import type {
   Arch,
+  HelpTexts,
   InputInfo,
   JobInfo,
+  ModelDetail,
   ModelInfo,
   StatsInfo,
   StorageInfo,
@@ -29,6 +31,13 @@ export const api = {
   getSystem: () => fetch(apiUrl("system")).then(json<SystemInfo>),
 
   listModels: () => fetch(apiUrl("models")).then(json<ModelInfo[]>),
+
+  getHelp: () => fetch(apiUrl("help")).then(json<HelpTexts>),
+
+  getModelDetail: (arch: Arch, name: string) =>
+    fetch(apiUrl(`models/detail?arch=${arch}&name=${encodeURIComponent(name)}`)).then(
+      json<ModelDetail>
+    ),
 
   downloadModel: (arch: Arch, name: string) =>
     fetch(apiUrl("models/download"), {

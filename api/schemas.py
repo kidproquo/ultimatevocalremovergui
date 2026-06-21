@@ -68,6 +68,20 @@ class ModelInfo(BaseModel):
     installed: bool
 
 
+class ModelDetail(BaseModel):
+    arch: Arch
+    name: str
+    download_name: str
+    filename: str
+    installed: bool
+    bytes: int = 0
+    stems: list[str] = Field(default_factory=list)  # what it outputs
+    primary_stem: Optional[str] = None
+    secondary_stem: Optional[str] = None
+    technical: dict = Field(default_factory=dict)  # model_data internals
+    note: Optional[str] = None
+
+
 class OutputFile(BaseModel):
     stem: str
     filename: str
