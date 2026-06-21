@@ -29,6 +29,7 @@ import type {
   InputInfo,
   JobInfo,
   ModelInfo,
+  NowPlaying,
   StatsInfo,
   StorageInfo,
   SystemInfo,
@@ -36,6 +37,7 @@ import type {
 import { SeparationForm } from "./components/SeparationForm";
 import { JobsPanel } from "./components/JobsPanel";
 import { StatsPanel } from "./components/StatsPanel";
+import { MiniPlayer } from "./components/MiniPlayer";
 import { makeTheme, type Mode } from "./theme";
 import { usePersisted } from "./usePersisted";
 
@@ -48,6 +50,7 @@ export function App() {
   const [stats, setStats] = useState<StatsInfo | null>(null);
   const [help, setHelp] = useState<HelpTexts>({});
   const [preset, setPreset] = useState<Record<string, unknown> | null>(null);
+  const [nowPlaying, setNowPlaying] = useState<NowPlaying | null>(null);
 
   // Theme: default to the system setting; persist an explicit choice.
   const prefersDark = useMediaQuery("(prefers-color-scheme: dark)");
@@ -107,7 +110,14 @@ export function App() {
 
   const jobsAndStats = (
     <Stack spacing={3}>
-      <JobsPanel jobs={jobs} storage={storage} onChanged={refreshJobs} onReuse={setPreset} />
+      <JobsPanel
+        jobs={jobs}
+        storage={storage}
+        onChanged={refreshJobs}
+        onReuse={setPreset}
+        onPlay={setNowPlaying}
+        playingUrl={nowPlaying?.url ?? null}
+      />
       <StatsPanel stats={stats} system={system} />
     </Stack>
   );
@@ -193,7 +203,14 @@ export function App() {
                 </Stack>
               </Grid>
               <Grid item xs={12} md={7}>
-                <JobsPanel jobs={jobs} storage={storage} onChanged={refreshJobs} onReuse={setPreset} />
+                <JobsPanel
+                  jobs={jobs}
+                  storage={storage}
+                  onChanged={refreshJobs}
+                  onReuse={setPreset}
+                  onPlay={setNowPlaying}
+                  playingUrl={nowPlaying?.url ?? null}
+                />
               </Grid>
             </Grid>
           )}
@@ -219,6 +236,10 @@ export function App() {
             {jobsAndStats}
           </Box>
         </Drawer>
+
+        {/* Spacer so the fixed player never covers content */}
+        {nowPlaying && <Box sx={{ height: 72 }} />}
+        <MiniPlayer track={nowPlaying} onClose={() => setNowPlaying(null)} />
       </Box>
     </ThemeProvider>
   );

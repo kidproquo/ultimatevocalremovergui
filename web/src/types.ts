@@ -40,6 +40,12 @@ export interface ModelDetail {
 
 export type HelpTexts = Record<string, string>;
 
+export interface NowPlaying {
+  url: string;
+  label: string; // shown in the player (e.g. "song — Vocals")
+  filename: string; // for the download
+}
+
 export interface OutputFile {
   stem: string;
   filename: string;

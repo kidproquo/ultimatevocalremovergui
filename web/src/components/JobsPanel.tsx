@@ -16,13 +16,14 @@ import {
   Typography,
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import DownloadIcon from "@mui/icons-material/Download";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import StorageIcon from "@mui/icons-material/Storage";
 import ReplayIcon from "@mui/icons-material/Replay";
 import StopCircleIcon from "@mui/icons-material/StopCircle";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import VolumeUpIcon from "@mui/icons-material/VolumeUp";
 import { api, apiUrl, humanBytes } from "../api";
-import type { JobInfo, JobStatus, StorageInfo } from "../types";
+import type { JobInfo, JobStatus, NowPlaying, StorageInfo } from "../types";
 
 const STATUS_COLOR: Record<JobStatus, "default" | "info" | "success" | "error" | "warning"> = {
   queued: "default",
@@ -100,10 +101,14 @@ function JobCard({
   job,
   onDeleted,
   onReuse,
+  onPlay,
+  playingUrl,
 }: {
   job: JobInfo;
   onDeleted: () => void;
   onReuse: (options: Record<string, unknown>) => void;
+  onPlay: (t: NowPlaying) => void;
+  playingUrl: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -255,17 +260,27 @@ function JobCard({
 
         {job.outputs.length > 0 && (
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
-            {job.outputs.map((o) => (
-              <Button
-                key={o.filename}
-                size="small"
-                variant="outlined"
-                startIcon={<DownloadIcon />}
-                href={apiUrl(`jobs/${job.id}/files/${encodeURIComponent(o.filename)}`)}
-              >
-                {o.stem}
-              </Button>
-            ))}
+            {job.outputs.map((o) => {
+              const url = apiUrl(`jobs/${job.id}/files/${encodeURIComponent(o.filename)}`);
+              const isPlaying = playingUrl === url;
+              return (
+                <Button
+                  key={o.filename}
+                  size="small"
+                  variant={isPlaying ? "contained" : "outlined"}
+                  startIcon={isPlaying ? <VolumeUpIcon /> : <PlayArrowIcon />}
+                  onClick={() =>
+                    onPlay({
+                      url,
+                      label: `${job.input_filename || job.id} — ${o.stem}`,
+                      filename: o.filename,
+                    })
+                  }
+                >
+                  {o.stem}
+                </Button>
+              );
+            })}
           </Stack>
         )}
 
@@ -298,11 +313,15 @@ export function JobsPanel({
   storage,
   onChanged,
   onReuse,
+  onPlay,
+  playingUrl,
 }: {
   jobs: JobInfo[];
   storage: StorageInfo | null;
   onChanged: () => void;
   onReuse: (options: Record<string, unknown>) => void;
+  onPlay: (t: NowPlaying) => void;
+  playingUrl: string | null;
 }) {
   return (
     <Card>
@@ -334,7 +353,14 @@ export function JobsPanel({
         ) : (
           <Stack spacing={1}>
             {jobs.map((j) => (
-              <JobCard key={j.id} job={j} onDeleted={onChanged} onReuse={onReuse} />
+              <JobCard
+                key={j.id}
+                job={j}
+                onDeleted={onChanged}
+                onReuse={onReuse}
+                onPlay={onPlay}
+                playingUrl={playingUrl}
+              />
             ))}
           </Stack>
         )}
