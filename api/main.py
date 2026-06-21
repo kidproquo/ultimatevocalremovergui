@@ -462,3 +462,25 @@ def get_job_file(job_id: str, filename: str):
     if not os.path.isfile(path):
         raise HTTPException(404, "File not found")
     return FileResponse(path, filename=safe)
+
+
+@app.delete("/api/jobs/{job_id}/files/{filename}")
+def delete_job_file(job_id: str, filename: str):
+    """Delete a single output stem; the job and its other stems remain."""
+    safe = os.path.basename(filename)
+    path = os.path.join(JOBS_DIR, job_id, safe)
+    if not os.path.isfile(path):
+        raise HTTPException(404, "File not found")
+    os.remove(path)
+    job = store.get(job_id)
+    if job:
+        # Keep the record but mark it deleted, so the UI can show a disabled chip.
+        outs = []
+        for o in job.to_info().outputs:
+            d = o.model_dump()
+            if o.filename == safe:
+                d["deleted"] = True
+            outs.append(d)
+        job.update(outputs=outs)
+        store.persist(job)
+    return {"deleted": safe}

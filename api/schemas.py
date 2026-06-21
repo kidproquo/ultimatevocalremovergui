@@ -95,6 +95,7 @@ class OutputFile(BaseModel):
     stem: str
     filename: str
     url: str
+    deleted: bool = False
 
 
 class JobInfo(BaseModel):

@@ -50,6 +50,7 @@ export interface OutputFile {
   stem: string;
   filename: string;
   url: string;
+  deleted?: boolean;
 }
 
 export type JobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";

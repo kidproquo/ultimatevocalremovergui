@@ -59,6 +59,11 @@ export const api = {
   cancelJob: (id: string) =>
     fetch(apiUrl(`jobs/${id}/cancel`), { method: "POST" }).then(json<{ cancelled: string }>),
 
+  deleteStem: (id: string, filename: string) =>
+    fetch(apiUrl(`jobs/${id}/files/${encodeURIComponent(filename)}`), {
+      method: "DELETE",
+    }).then(json<{ deleted: string }>),
+
   getStorage: () => fetch(apiUrl("storage")).then(json<StorageInfo>),
 
   getStats: () => fetch(apiUrl("stats")).then(json<StatsInfo>),

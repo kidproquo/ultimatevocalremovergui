@@ -4,7 +4,6 @@ import {
   AccordionDetails,
   AccordionSummary,
   Box,
-  Button,
   Card,
   CardContent,
   Chip,
@@ -149,6 +148,16 @@ function JobCard({
     }
   };
 
+  const deleteStem = async (filename: string) => {
+    if (!window.confirm("Delete this stem file? It can't be undone.")) return;
+    try {
+      await api.deleteStem(job.id, filename);
+      onDeleted();
+    } catch (err) {
+      console.error("delete stem failed", err);
+    }
+  };
+
   return (
     <Accordion
       expanded={open}
@@ -261,14 +270,27 @@ function JobCard({
         {job.outputs.length > 0 && (
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
             {job.outputs.map((o) => {
+              if (o.deleted) {
+                return (
+                  <Chip
+                    key={o.filename}
+                    size="small"
+                    variant="outlined"
+                    disabled
+                    label={`${o.stem} (deleted)`}
+                  />
+                );
+              }
               const url = apiUrl(`jobs/${job.id}/files/${encodeURIComponent(o.filename)}`);
               const isPlaying = playingUrl === url;
               return (
-                <Button
+                <Chip
                   key={o.filename}
                   size="small"
-                  variant={isPlaying ? "contained" : "outlined"}
-                  startIcon={isPlaying ? <VolumeUpIcon /> : <PlayArrowIcon />}
+                  color={isPlaying ? "primary" : "default"}
+                  variant={isPlaying ? "filled" : "outlined"}
+                  icon={isPlaying ? <VolumeUpIcon /> : <PlayArrowIcon />}
+                  label={o.stem}
                   onClick={() =>
                     onPlay({
                       url,
@@ -276,9 +298,8 @@ function JobCard({
                       filename: o.filename,
                     })
                   }
-                >
-                  {o.stem}
-                </Button>
+                  onDelete={() => deleteStem(o.filename)}
+                />
               );
             })}
           </Stack>
