@@ -38,8 +38,27 @@ export interface JobInfo {
   options?: Record<string, unknown> | null;
   outputs: OutputFile[];
   bytes: number;
+  device?: string | null;
+  input_bytes: number;
+  duration_sec?: number | null;
   created_at: number;
   updated_at: number;
+}
+
+export interface StatRow {
+  model: string;
+  arch: string;
+  device: string;
+  runs: number;
+  total_mb: number;
+  total_sec: number;
+  sec_per_mb: number;
+  last_run: number;
+}
+
+export interface StatsInfo {
+  host_device: string;
+  rows: StatRow[];
 }
 
 export interface StorageInfo {

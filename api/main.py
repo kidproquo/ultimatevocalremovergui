@@ -1,6 +1,7 @@
 """FastAPI application exposing UVR separation as a web service."""
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import uuid
@@ -19,6 +20,8 @@ from .schemas import (
     ModelInfo,
     OutputFormat,
     SeparationOptions,
+    StatRow,
+    StatsInfo,
     StorageInfo,
 )
 from .separation import run_separation
@@ -28,6 +31,7 @@ DATA_DIR = os.environ.get("UVR_DATA_DIR", os.path.join(REPO_ROOT, "data"))
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")  # legacy per-job uploads (pre-inputs)
 INPUTS_DIR = os.path.join(DATA_DIR, "inputs")  # reusable, persistent input files
 JOBS_DIR = os.path.join(DATA_DIR, "jobs")
+METRICS_FILE = os.path.join(DATA_DIR, "metrics.jsonl")  # append-only perf log
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(INPUTS_DIR, exist_ok=True)
 os.makedirs(JOBS_DIR, exist_ok=True)
@@ -176,6 +180,11 @@ async def separate(
         use_gpu=use_gpu,
     )
 
+    # One job at a time: reject if a separation is already running/queued.
+    busy = store.active_separation()
+    if busy:
+        raise HTTPException(409, f"A separation is already running (job {busy.id}). Wait for it to finish.")
+
     # Resolve the audio source: reuse a saved input, or save a new upload as a
     # reusable input (so it's retained for further jobs). The input is NOT tied
     # to the job — deleting the job leaves the input in place.
@@ -203,9 +212,30 @@ async def separate(
     def _task(j):
         outputs = run_separation(audio_path, export_path, opts, j)
         j.update(outputs=outputs, message="Done")
+        _record_metric(j, opts)
 
     store.submit(job, _task)
     return job.to_info()
+
+
+def _record_metric(job, opts: SeparationOptions):
+    """Append one performance record per completed separation for /api/stats."""
+    if not job.duration_sec or not job.input_bytes:
+        return
+    rec = {
+        "ts": job.updated_at,
+        "job_id": job.id,
+        "model": opts.model_name,
+        "arch": opts.arch.value,
+        "device": job.device or "cpu",
+        "input_bytes": job.input_bytes,
+        "duration_sec": job.duration_sec,
+    }
+    try:
+        with open(METRICS_FILE, "a") as f:
+            f.write(json.dumps(rec) + "\n")
+    except OSError:
+        pass
 
 
 def _dir_size(path: str) -> int:
@@ -281,6 +311,42 @@ def storage():
         outputs_bytes=outputs,
         job_count=len(jobs),
     )
+
+
+@app.get("/api/stats", response_model=StatsInfo)
+def stats():
+    """Per-(model, device) processing throughput accumulated on this host."""
+    from .separation import device_info
+
+    agg: dict[tuple, dict] = {}
+    if os.path.isfile(METRICS_FILE):
+        with open(METRICS_FILE) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                key = (r.get("model", "?"), r.get("arch", "?"), r.get("device", "cpu"))
+                a = agg.setdefault(key, {"runs": 0, "bytes": 0, "sec": 0.0, "last": 0.0})
+                a["runs"] += 1
+                a["bytes"] += r.get("input_bytes", 0)
+                a["sec"] += r.get("duration_sec", 0.0)
+                a["last"] = max(a["last"], r.get("ts", 0.0))
+
+    rows = []
+    for (model, arch, device), a in agg.items():
+        mb = a["bytes"] / (1024 * 1024)
+        rows.append(StatRow(
+            model=model, arch=arch, device=device, runs=a["runs"],
+            total_mb=round(mb, 1), total_sec=round(a["sec"], 1),
+            sec_per_mb=round(a["sec"] / mb, 3) if mb > 0 else 0.0,
+            last_run=a["last"],
+        ))
+    rows.sort(key=lambda r: r.last_run, reverse=True)
+    return StatsInfo(host_device=device_info().get("device", "cpu"), rows=rows)
 
 
 @app.get("/api/jobs/{job_id}", response_model=JobInfo)

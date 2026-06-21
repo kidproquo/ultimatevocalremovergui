@@ -45,6 +45,9 @@ class Job:
     input_filename: Optional[str] = None
     options: Optional[dict] = None
     outputs: list = field(default_factory=list)  # list[OutputFile]
+    device: Optional[str] = None
+    input_bytes: int = 0
+    duration_sec: Optional[float] = None
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -83,6 +86,9 @@ class Job:
                 input_filename=self.input_filename,
                 options=self.options,
                 outputs=self._outputs_as_models(),
+                device=self.device,
+                input_bytes=self.input_bytes,
+                duration_sec=self.duration_sec,
                 created_at=self.created_at,
                 updated_at=self.updated_at,
             )
@@ -109,6 +115,9 @@ class Job:
                 "input_filename": self.input_filename,
                 "options": self.options,
                 "outputs": [o.model_dump() for o in self._outputs_as_models()],
+                "device": self.device,
+                "input_bytes": self.input_bytes,
+                "duration_sec": self.duration_sec,
                 "created_at": self.created_at,
                 "updated_at": self.updated_at,
             }
@@ -124,6 +133,9 @@ class Job:
         job.input_filename = d.get("input_filename")
         job.options = d.get("options")
         job.outputs = [OutputFile(**o) for o in d.get("outputs", [])]
+        job.device = d.get("device")
+        job.input_bytes = d.get("input_bytes", 0)
+        job.duration_sec = d.get("duration_sec")
         job.created_at = d.get("created_at", time.time())
         job.updated_at = d.get("updated_at", job.created_at)
         return job
@@ -171,6 +183,15 @@ class JobStore:
     def list(self) -> list[Job]:
         with self._lock:
             return sorted(self._jobs.values(), key=lambda j: j.created_at, reverse=True)
+
+    def active_separation(self) -> Optional[Job]:
+        """A separation job that is running or queued, if any (one-at-a-time)."""
+        active = (JobStatus.running.value, JobStatus.queued.value)
+        with self._lock:
+            for j in self._jobs.values():
+                if j.kind == "separation" and j.status in active:
+                    return j
+        return None
 
     def submit(self, job: Job, target: Callable[[Job], None]):
         """Run ``target(job)`` on the worker pool, tracking status/errors."""

@@ -8,6 +8,7 @@ from __future__ import annotations
 import importlib
 import os
 import re
+import time
 import threading
 from typing import Any
 
@@ -250,8 +251,10 @@ def run_separation(audio_path: str, export_path: str, opts: SeparationOptions, j
 
     status = gpu_status(separate)
     device = "cuda" if (use_gpu and status["cuda"]) else "mps" if (use_gpu and status["mps"]) else "cpu"
-    job.update(message=f"Running on {device.upper()}")
+    input_bytes = os.path.getsize(audio_path) if os.path.isfile(audio_path) else 0
+    job.update(message=f"Running on {device.upper()}", device=device, input_bytes=input_bytes)
     job.append_log(_settings_summary(opts, device) + "\n")
+    t0 = time.monotonic()
 
     method = getattr(consts, _ARCH_TO_METHOD[opts.arch.value])
     model = uvr.ModelData(opts.model_name, selected_process_method=method, is_dry_check=True)
@@ -309,6 +312,16 @@ def run_separation(audio_path: str, export_path: str, opts: SeparationOptions, j
 
     job.update(message=f"Separating with {model.model_basename}…")
     seperator.seperate()
+
+    # Timing / throughput — track for the per-host performance panel.
+    duration = time.monotonic() - t0
+    mb = input_bytes / (1024 * 1024)
+    per_mb = duration / mb if mb > 0 else 0.0
+    job.update(duration_sec=duration)
+    job.append_log(
+        f"\nTotal time: {duration:.1f}s on {device.upper()} "
+        f"({mb:.1f} MB input, {per_mb:.2f} s/MB)\n"
+    )
 
     # Collect newly produced files (handles WAV/FLAC/MP3 naming uniformly).
     produced = sorted(set(os.listdir(export_path)) - before)

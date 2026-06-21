@@ -5,6 +5,7 @@ import {
   Chip,
   Container,
   Grid,
+  Stack,
   Toolbar,
   Tooltip,
   Typography,
@@ -13,9 +14,17 @@ import GraphicEqIcon from "@mui/icons-material/GraphicEq";
 import MemoryIcon from "@mui/icons-material/Memory";
 import BoltIcon from "@mui/icons-material/Bolt";
 import { api } from "./api";
-import type { InputInfo, JobInfo, ModelInfo, StorageInfo, SystemInfo } from "./types";
+import type {
+  InputInfo,
+  JobInfo,
+  ModelInfo,
+  StatsInfo,
+  StorageInfo,
+  SystemInfo,
+} from "./types";
 import { SeparationForm } from "./components/SeparationForm";
 import { JobsPanel } from "./components/JobsPanel";
+import { StatsPanel } from "./components/StatsPanel";
 
 export function App() {
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -23,6 +32,7 @@ export function App() {
   const [inputs, setInputs] = useState<InputInfo[]>([]);
   const [system, setSystem] = useState<SystemInfo | null>(null);
   const [storage, setStorage] = useState<StorageInfo | null>(null);
+  const [stats, setStats] = useState<StatsInfo | null>(null);
   // One-shot: settings lifted from a past job to prefill the form.
   const [preset, setPreset] = useState<Record<string, unknown> | null>(null);
 
@@ -38,6 +48,7 @@ export function App() {
     try {
       setJobs(await api.listJobs());
       setStorage(await api.getStorage());
+      setStats(await api.getStats());
     } catch (e) {
       console.error("Failed to load jobs", e);
     }
@@ -59,6 +70,11 @@ export function App() {
     const t = setInterval(refreshJobs, 2000);
     return () => clearInterval(t);
   }, [refreshModels, refreshJobs, refreshInputs]);
+
+  // One job at a time: a separation is in flight when any is running/queued.
+  const busyJob = jobs.find(
+    (j) => j.kind === "separation" && (j.status === "running" || j.status === "queued")
+  );
 
   const gpu = system?.gpu_available ?? false;
   const deviceLabel = system
@@ -99,18 +115,22 @@ export function App() {
       <Container maxWidth="lg" sx={{ py: 4 }}>
         <Grid container spacing={3}>
           <Grid item xs={12} md={5}>
-            <SeparationForm
-              models={models}
-              inputs={inputs}
-              preset={preset}
-              onPresetApplied={() => setPreset(null)}
-              onModelsChanged={refreshModels}
-              onInputsChanged={refreshInputs}
-              onJobCreated={() => {
-                refreshJobs();
-                refreshInputs();
-              }}
-            />
+            <Stack spacing={3}>
+              <SeparationForm
+                models={models}
+                inputs={inputs}
+                preset={preset}
+                busy={!!busyJob}
+                onPresetApplied={() => setPreset(null)}
+                onModelsChanged={refreshModels}
+                onInputsChanged={refreshInputs}
+                onJobCreated={() => {
+                  refreshJobs();
+                  refreshInputs();
+                }}
+              />
+              <StatsPanel stats={stats} />
+            </Stack>
           </Grid>
           <Grid item xs={12} md={7}>
             <JobsPanel

@@ -43,6 +43,7 @@ interface Props {
   models: ModelInfo[];
   inputs: InputInfo[];
   preset: Record<string, unknown> | null;
+  busy: boolean;
   onPresetApplied: () => void;
   onModelsChanged: () => void;
   onInputsChanged: () => void;
@@ -55,6 +56,7 @@ export function SeparationForm({
   models,
   inputs,
   preset,
+  busy,
   onPresetApplied,
   onModelsChanged,
   onInputsChanged,
@@ -454,15 +456,20 @@ export function SeparationForm({
           </Accordion>
 
           {error && <Alert severity="error">{error}</Alert>}
+          {busy && (
+            <Alert severity="info" sx={{ py: 0 }}>
+              A separation is running — only one job runs at a time.
+            </Alert>
+          )}
 
           <Button
             variant="contained"
             size="large"
-            disabled={submitting}
+            disabled={submitting || busy}
             onClick={submit}
-            startIcon={submitting ? <CircularProgress size={18} /> : undefined}
+            startIcon={submitting || busy ? <CircularProgress size={18} /> : undefined}
           >
-            {submitting ? "Submitting…" : "Separate"}
+            {busy ? "Job running…" : submitting ? "Submitting…" : "Separate"}
           </Button>
         </Stack>
       </CardContent>

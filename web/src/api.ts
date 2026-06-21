@@ -3,6 +3,7 @@ import type {
   InputInfo,
   JobInfo,
   ModelInfo,
+  StatsInfo,
   StorageInfo,
   SystemInfo,
 } from "./types";
@@ -47,6 +48,8 @@ export const api = {
     fetch(apiUrl(`jobs/${id}`), { method: "DELETE" }).then(json<{ deleted: string }>),
 
   getStorage: () => fetch(apiUrl("storage")).then(json<StorageInfo>),
+
+  getStats: () => fetch(apiUrl("stats")).then(json<StatsInfo>),
 
   listInputs: () => fetch(apiUrl("inputs")).then(json<InputInfo[]>),
 

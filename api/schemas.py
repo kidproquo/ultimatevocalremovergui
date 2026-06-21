@@ -86,6 +86,9 @@ class JobInfo(BaseModel):
     options: Optional[dict] = None
     outputs: list[OutputFile] = Field(default_factory=list)
     bytes: int = 0  # disk used by this job's input + output files
+    device: Optional[str] = None  # cpu / cuda / mps the job ran on
+    input_bytes: int = 0  # size of the input audio processed
+    duration_sec: Optional[float] = None  # processing wall-clock time
     created_at: float = 0.0
     updated_at: float = 0.0
 
@@ -102,6 +105,23 @@ class InputInfo(BaseModel):
     filename: str
     bytes: int
     created_at: float
+
+
+class StatRow(BaseModel):
+    """Aggregated processing performance for one (model, device) on this host."""
+    model: str
+    arch: str
+    device: str
+    runs: int
+    total_mb: float
+    total_sec: float
+    sec_per_mb: float  # average processing seconds per input megabyte
+    last_run: float
+
+
+class StatsInfo(BaseModel):
+    host_device: str  # device the host currently resolves to
+    rows: list[StatRow]
 
 
 class DownloadRequest(BaseModel):

@@ -139,6 +139,24 @@ function JobCard({
                 : job.input_filename || job.id}
             </Typography>
             <Box flexGrow={1} />
+            {job.duration_sec != null && (
+              <Tooltip
+                title={
+                  job.input_bytes > 0
+                    ? `${(job.input_bytes / 1048576).toFixed(1)} MB on ${(job.device || "cpu").toUpperCase()} · ${(
+                        job.duration_sec / (job.input_bytes / 1048576)
+                      ).toFixed(2)} s/MB`
+                    : ""
+                }
+              >
+                <Typography variant="caption" color="text.secondary">
+                  {job.duration_sec >= 60
+                    ? `${Math.floor(job.duration_sec / 60)}m${Math.round(job.duration_sec % 60)}s`
+                    : `${job.duration_sec.toFixed(1)}s`}
+                  {job.device ? ` · ${job.device.toUpperCase()}` : ""}
+                </Typography>
+              </Tooltip>
+            )}
             {job.bytes > 0 && (
               <Typography variant="caption" color="text.secondary">
                 {humanBytes(job.bytes)}
