@@ -24,7 +24,7 @@ from .schemas import (
     StatsInfo,
     StorageInfo,
 )
-from .separation import run_separation
+from .separation import run_separation_isolated
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.environ.get("UVR_DATA_DIR", os.path.join(REPO_ROOT, "data"))
@@ -210,7 +210,7 @@ async def separate(
     export_path = os.path.join(JOBS_DIR, job.id)
 
     def _task(j):
-        outputs = run_separation(audio_path, export_path, opts, j)
+        outputs = run_separation_isolated(audio_path, export_path, opts, j)
         j.update(outputs=outputs, message="Done")
         _record_metric(j, opts)
 

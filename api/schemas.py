@@ -88,6 +88,7 @@ class JobInfo(BaseModel):
     bytes: int = 0  # disk used by this job's input + output files
     device: Optional[str] = None  # cpu / cuda / mps the job ran on
     input_bytes: int = 0  # size of the input audio processed
+    started_at: Optional[float] = None  # wall-clock when processing began
     duration_sec: Optional[float] = None  # processing wall-clock time
     created_at: float = 0.0
     updated_at: float = 0.0

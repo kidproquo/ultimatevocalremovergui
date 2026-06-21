@@ -47,6 +47,7 @@ class Job:
     outputs: list = field(default_factory=list)  # list[OutputFile]
     device: Optional[str] = None
     input_bytes: int = 0
+    started_at: Optional[float] = None
     duration_sec: Optional[float] = None
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
@@ -88,6 +89,7 @@ class Job:
                 outputs=self._outputs_as_models(),
                 device=self.device,
                 input_bytes=self.input_bytes,
+                started_at=self.started_at,
                 duration_sec=self.duration_sec,
                 created_at=self.created_at,
                 updated_at=self.updated_at,
@@ -117,6 +119,7 @@ class Job:
                 "outputs": [o.model_dump() for o in self._outputs_as_models()],
                 "device": self.device,
                 "input_bytes": self.input_bytes,
+                "started_at": self.started_at,
                 "duration_sec": self.duration_sec,
                 "created_at": self.created_at,
                 "updated_at": self.updated_at,
@@ -135,6 +138,7 @@ class Job:
         job.outputs = [OutputFile(**o) for o in d.get("outputs", [])]
         job.device = d.get("device")
         job.input_bytes = d.get("input_bytes", 0)
+        job.started_at = d.get("started_at")
         job.duration_sec = d.get("duration_sec")
         job.created_at = d.get("created_at", time.time())
         job.updated_at = d.get("updated_at", job.created_at)

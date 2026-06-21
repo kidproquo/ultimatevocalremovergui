@@ -40,6 +40,7 @@ export interface JobInfo {
   bytes: number;
   device?: string | null;
   input_bytes: number;
+  started_at?: number | null;
   duration_sec?: number | null;
   created_at: number;
   updated_at: number;

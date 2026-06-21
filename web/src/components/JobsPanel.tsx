@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Accordion,
   AccordionDetails,
@@ -29,6 +29,11 @@ const STATUS_COLOR: Record<JobStatus, "default" | "info" | "success" | "error"> 
   completed: "success",
   failed: "error",
 };
+
+function fmtSecs(s: number): string {
+  if (s >= 60) return `${Math.floor(s / 60)}m${String(Math.round(s % 60)).padStart(2, "0")}s`;
+  return `${s.toFixed(s < 10 ? 1 : 0)}s`;
+}
 
 // Render the settings a job used, from its persisted options. Only arch-relevant
 // fields are shown, so it reflects what actually took effect (and survives log
@@ -103,6 +108,16 @@ function JobCard({
   const active = job.status === "running" || job.status === "queued";
   const canReuse = job.kind === "separation" && !!job.options;
 
+  // Live elapsed clock while the job is processing.
+  const [nowSec, setNowSec] = useState(() => Date.now() / 1000);
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(() => setNowSec(Date.now() / 1000), 1000);
+    return () => clearInterval(t);
+  }, [active]);
+  const elapsed =
+    active && job.started_at ? Math.max(0, nowSec - job.started_at) : null;
+
   const del = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!window.confirm("Delete this job and its files? This cannot be undone."))
@@ -139,23 +154,28 @@ function JobCard({
                 : job.input_filename || job.id}
             </Typography>
             <Box flexGrow={1} />
-            {job.duration_sec != null && (
-              <Tooltip
-                title={
-                  job.input_bytes > 0
-                    ? `${(job.input_bytes / 1048576).toFixed(1)} MB on ${(job.device || "cpu").toUpperCase()} · ${(
-                        job.duration_sec / (job.input_bytes / 1048576)
-                      ).toFixed(2)} s/MB`
-                    : ""
-                }
-              >
-                <Typography variant="caption" color="text.secondary">
-                  {job.duration_sec >= 60
-                    ? `${Math.floor(job.duration_sec / 60)}m${Math.round(job.duration_sec % 60)}s`
-                    : `${job.duration_sec.toFixed(1)}s`}
-                  {job.device ? ` · ${job.device.toUpperCase()}` : ""}
-                </Typography>
-              </Tooltip>
+            {elapsed != null ? (
+              <Typography variant="caption" sx={{ color: "info.main", fontVariantNumeric: "tabular-nums" }}>
+                ⏱ {fmtSecs(elapsed)}
+                {job.device ? ` · ${job.device.toUpperCase()}` : ""}
+              </Typography>
+            ) : (
+              job.duration_sec != null && (
+                <Tooltip
+                  title={
+                    job.input_bytes > 0
+                      ? `${(job.input_bytes / 1048576).toFixed(1)} MB on ${(job.device || "cpu").toUpperCase()} · ${(
+                          job.duration_sec / (job.input_bytes / 1048576)
+                        ).toFixed(2)} s/MB`
+                      : ""
+                  }
+                >
+                  <Typography variant="caption" color="text.secondary">
+                    {fmtSecs(job.duration_sec)}
+                    {job.device ? ` · ${job.device.toUpperCase()}` : ""}
+                  </Typography>
+                </Tooltip>
+              )
             )}
             {job.bytes > 0 && (
               <Typography variant="caption" color="text.secondary">

@@ -6,9 +6,11 @@ Reuses the unmodified ``ModelData`` (UVR.py) and ``Seperate*`` engines
 from __future__ import annotations
 
 import importlib
+import multiprocessing
 import os
 import re
 import time
+from queue import Empty
 import threading
 from typing import Any
 
@@ -252,7 +254,12 @@ def run_separation(audio_path: str, export_path: str, opts: SeparationOptions, j
     status = gpu_status(separate)
     device = "cuda" if (use_gpu and status["cuda"]) else "mps" if (use_gpu and status["mps"]) else "cpu"
     input_bytes = os.path.getsize(audio_path) if os.path.isfile(audio_path) else 0
-    job.update(message=f"Running on {device.upper()}", device=device, input_bytes=input_bytes)
+    job.update(
+        message=f"Running on {device.upper()}",
+        device=device,
+        input_bytes=input_bytes,
+        started_at=time.time(),  # wall-clock, for the live elapsed timer
+    )
     job.append_log(_settings_summary(opts, device) + "\n")
     t0 = time.monotonic()
 
@@ -332,3 +339,88 @@ def run_separation(audio_path: str, export_path: str, opts: SeparationOptions, j
         stem = m.group(1) if m else fname
         outputs.append(OutputFile(stem=stem, filename=fname, url=f"/api/jobs/{job.id}/files/{fname}"))
     return outputs
+
+
+# --- Subprocess isolation ---------------------------------------------------
+# Separation runs in a child process so an OOM (or any hard crash) kills only
+# that child — the API stays up and the job fails cleanly. The kernel's OOM
+# killer targets the fat separation child over the small parent (uvicorn).
+
+
+class _ChildJob:
+    """Stand-in for a Job inside the child — forwards updates to the parent over
+    a queue instead of mutating shared state. Only the methods/attrs that
+    ``run_separation`` touches are implemented."""
+
+    def __init__(self, job_id: str, q):
+        self.id = job_id
+        self._q = q
+        self.status = "running"
+
+    def update(self, **kwargs):
+        self._q.put(("update", kwargs))
+
+    def append_log(self, text: str):
+        self._q.put(("log", text))
+
+
+def _separation_child(q, audio_path, export_path, opts_dict, job_id):
+    """Child entrypoint (spawned): run the real separation, stream events back."""
+    try:
+        opts = SeparationOptions(**opts_dict)
+        outputs = run_separation(audio_path, export_path, opts, _ChildJob(job_id, q))
+        q.put(("done", [o.model_dump() for o in outputs]))
+    except BaseException as exc:  # noqa: BLE001 - report anything to the parent
+        import traceback
+
+        q.put(("error", f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"))
+
+
+def run_separation_isolated(audio_path: str, export_path: str, opts: SeparationOptions, job):
+    """Run :func:`run_separation` in a spawned child process, pumping its
+    progress/log/result back onto ``job``. Raises on error or OOM."""
+    ctx = multiprocessing.get_context("spawn")
+    q = ctx.Queue()
+    proc = ctx.Process(
+        target=_separation_child,
+        args=(q, audio_path, export_path, opts.model_dump(mode="json"), job.id),
+        daemon=True,
+    )
+    proc.start()
+
+    result = None
+    error = None
+    while True:
+        try:
+            kind, payload = q.get(timeout=1.0)
+        except Empty:
+            if not proc.is_alive():
+                break  # died without reporting (likely killed)
+            continue
+        if kind == "log":
+            job.append_log(payload)
+        elif kind == "update":
+            job.update(**payload)
+        elif kind == "done":
+            result = payload
+            break
+        elif kind == "error":
+            error = payload
+            break
+
+    proc.join(timeout=10)
+    if proc.is_alive():
+        proc.terminate()
+
+    if error is not None:
+        raise RuntimeError(error)
+    if result is None:
+        # No done/error and the process is gone => it was killed.
+        if proc.exitcode == -9:  # SIGKILL — on this host that means OOM
+            raise MemoryError(
+                "Separation ran out of memory and was killed. Try a lighter model "
+                "(e.g. 'htdemucs' instead of 'htdemucs_ft'), reduce the Demucs "
+                "segment, or use a shorter file."
+            )
+        raise RuntimeError(f"Separation process exited unexpectedly (code {proc.exitcode}).")
+    return [OutputFile(**o) for o in result]
