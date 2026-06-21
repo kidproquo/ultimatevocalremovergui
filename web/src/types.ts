@@ -8,6 +8,12 @@ export interface SystemInfo {
   device: "cuda" | "mps" | "cpu";
   gpu_available: boolean;
   mode: string; // UVR_USE_GPU: auto | on | off
+  // Host spec (no host bind needed — from /proc + cgroup)
+  cpu_model?: string | null;
+  cpu_cores?: number | null;
+  cpu_mhz?: number | null;
+  ram_total?: number | null;
+  ram_limit?: number | null;
 }
 
 export interface ModelInfo {

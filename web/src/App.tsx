@@ -108,7 +108,7 @@ export function App() {
   const jobsAndStats = (
     <Stack spacing={3}>
       <JobsPanel jobs={jobs} storage={storage} onChanged={refreshJobs} onReuse={setPreset} />
-      <StatsPanel stats={stats} />
+      <StatsPanel stats={stats} system={system} />
     </Stack>
   );
 
@@ -189,7 +189,7 @@ export function App() {
                       refreshInputs();
                     }}
                   />
-                  <StatsPanel stats={stats} />
+                  <StatsPanel stats={stats} system={system} />
                 </Stack>
               </Grid>
               <Grid item xs={12} md={7}>

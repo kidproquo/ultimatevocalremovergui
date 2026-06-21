@@ -142,8 +142,51 @@ def device_info() -> dict[str, Any]:
     info["gpu_available"] = detected
     info["mode"] = env
 
+    # Host spec — readable from inside the container without a host bind
+    # (/proc/cpuinfo and /proc/meminfo are not namespaced; the cgroup cap lives
+    # under /sys/fs/cgroup).
+    info.update(_host_spec())
+
     _device_info_cache = info
     return info
+
+
+def _host_spec() -> dict[str, Any]:
+    spec: dict[str, Any] = {
+        "cpu_model": None, "cpu_cores": None, "cpu_mhz": None,
+        "ram_total": None, "ram_limit": None,
+    }
+    try:
+        for line in open("/proc/cpuinfo"):
+            if line.startswith("model name") and not spec["cpu_model"]:
+                spec["cpu_model"] = line.split(":", 1)[1].strip()
+            elif line.lower().startswith("cpu mhz") and not spec["cpu_mhz"]:
+                spec["cpu_mhz"] = round(float(line.split(":", 1)[1].strip()))
+    except Exception:
+        pass
+    try:
+        import psutil
+
+        spec["cpu_cores"] = psutil.cpu_count()
+        spec["ram_total"] = psutil.virtual_memory().total
+        # Prefer the reported max clock; fall back to the /proc current MHz above.
+        freq = psutil.cpu_freq()
+        if freq and (freq.max or freq.current):
+            spec["cpu_mhz"] = round(freq.max or freq.current)
+    except Exception:
+        pass
+    # Container memory cap (cgroup v2 then v1); ignore if effectively unlimited.
+    for p in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            raw = open(p).read().strip()
+            if raw and raw != "max":
+                limit = int(raw)
+                if not spec["ram_total"] or limit < spec["ram_total"]:
+                    spec["ram_limit"] = limit
+            break
+        except Exception:
+            continue
+    return spec
 
 
 def _resolve_use_gpu(opts: SeparationOptions, separate) -> bool:

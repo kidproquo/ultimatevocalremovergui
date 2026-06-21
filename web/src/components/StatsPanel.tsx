@@ -13,13 +13,45 @@ import {
   Typography,
 } from "@mui/material";
 import SpeedIcon from "@mui/icons-material/Speed";
-import type { StatsInfo } from "../types";
+import { humanBytes } from "../api";
+import type { StatsInfo, SystemInfo } from "../types";
 
 // Per-host processing performance, accumulated over time: how long each model
-// takes per MB of input on this machine's device. Useful for comparing models
-// and (later) CPU vs GPU hosts.
-export function StatsPanel({ stats }: { stats: StatsInfo | null }) {
+// takes per minute of audio on this machine, and its peak memory.
+export function StatsPanel({ stats, system }: { stats: StatsInfo | null; system: SystemInfo | null }) {
   const rows = stats?.rows ?? [];
+  // The device column is only meaningful when more than one device appears.
+  const showDevice = new Set(rows.map((r) => r.device)).size > 1;
+
+  const hostLabel = system
+    ? system.gpu_available
+      ? `${system.name || "GPU"}`
+      : system.cpu_model || "CPU"
+    : stats?.host_device.toUpperCase() || "…";
+
+  const ramText = system?.ram_total
+    ? system.ram_limit && system.ram_limit < system.ram_total
+      ? `${humanBytes(system.ram_limit)} cap / ${humanBytes(system.ram_total)}`
+      : humanBytes(system.ram_total)
+    : null;
+  const cpuText = [
+    system?.cpu_model,
+    system?.cpu_cores ? `${system.cpu_cores} cores` : null,
+    system?.cpu_mhz ? `${(system.cpu_mhz / 1000).toFixed(2)} GHz` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const hostTip = system
+    ? [
+        cpuText || null,
+        ramText ? `${ramText} RAM` : null,
+        system.gpu_available ? `GPU: ${system.name}` : "no GPU",
+        system.torch ? `torch ${system.torch}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : "";
+
   return (
     <Card>
       <CardContent>
@@ -29,74 +61,81 @@ export function StatsPanel({ stats }: { stats: StatsInfo | null }) {
             Processing performance
           </Typography>
           <Box flexGrow={1} />
-          {stats && (
-            <Chip size="small" variant="outlined" label={`host: ${stats.host_device.toUpperCase()}`} />
+          {system && (
+            <Tooltip title={<span style={{ whiteSpace: "pre-line" }}>{hostTip}</span>}>
+              <Chip
+                size="small"
+                variant="outlined"
+                label={hostLabel}
+                sx={{ maxWidth: 220, ".MuiChip-label": { overflow: "hidden", textOverflow: "ellipsis" } }}
+              />
+            </Tooltip>
           )}
         </Stack>
 
         {rows.length === 0 ? (
           <Typography variant="body2" color="text.secondary">
-            No completed separations yet. Run a job to start tracking time per MB.
+            No completed separations yet. Run a job to start tracking time per minute of audio.
           </Typography>
         ) : (
           <Box sx={{ overflowX: "auto" }}>
-          <Table size="small" sx={{ minWidth: 360 }}>
-            <TableHead>
-              <TableRow>
-                <TableCell>Model</TableCell>
-                <TableCell align="center">Device</TableCell>
-                <TableCell align="right">
-                  <Tooltip title="Completed runs (failed/cancelled in red)">
-                    <span>Runs</span>
-                  </Tooltip>
-                </TableCell>
-                <TableCell align="right">
-                  <Tooltip title="Avg processing seconds per minute of audio on full runs (lower = faster; format-independent)">
-                    <span>s / min</span>
-                  </Tooltip>
-                </TableCell>
-                <TableCell align="right">
-                  <Tooltip title="Peak memory — average (worst-case)">
-                    <span>Peak mem</span>
-                  </Tooltip>
-                </TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {rows.map((r) => (
-                <TableRow key={`${r.model}|${r.device}`}>
-                  <TableCell sx={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    <Tooltip title={`${r.model} (${r.arch.toUpperCase()})`}>
-                      <span>{r.model}</span>
+            <Table size="small" sx={{ minWidth: 320 }}>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Model</TableCell>
+                  {showDevice && <TableCell align="center">Device</TableCell>}
+                  <TableCell align="right">
+                    <Tooltip title="Completed runs (failed/cancelled in red)">
+                      <span>Runs</span>
                     </Tooltip>
-                  </TableCell>
-                  <TableCell align="center">
-                    <Chip size="small" label={r.device.toUpperCase()} variant="outlined" sx={{ height: 20, fontSize: 11 }} />
                   </TableCell>
                   <TableCell align="right">
-                    {r.completed}
-                    {r.failed + r.cancelled > 0 && (
-                      <Tooltip title={`${r.failed} failed, ${r.cancelled} cancelled`}>
-                        <Box component="span" sx={{ color: "error.main", ml: 0.5 }}>
-                          (+{r.failed + r.cancelled})
-                        </Box>
-                      </Tooltip>
-                    )}
-                  </TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600 }}>
-                    <Tooltip title={r.total_audio_min > 0 ? `${r.total_audio_min.toFixed(1)} min processed` : ""}>
-                      <span>{r.sec_per_audio_min > 0 ? r.sec_per_audio_min.toFixed(1) : "—"}</span>
+                    <Tooltip title="Avg processing seconds per minute of audio on full runs (lower = faster; format-independent)">
+                      <span>s / min</span>
                     </Tooltip>
                   </TableCell>
-                  <TableCell align="right" sx={{ color: "text.secondary" }}>
-                    {r.avg_peak_mb > 0
-                      ? `${r.avg_peak_mb.toFixed(0)} (${r.max_peak_mb.toFixed(0)})`
-                      : "—"}
+                  <TableCell align="right">
+                    <Tooltip title="Peak memory — average (worst-case)">
+                      <span>Peak mem</span>
+                    </Tooltip>
                   </TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHead>
+              <TableBody>
+                {rows.map((r) => (
+                  <TableRow key={`${r.model}|${r.device}`}>
+                    <TableCell sx={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <Tooltip title={`${r.model} (${r.arch.toUpperCase()})`}>
+                        <span>{r.model}</span>
+                      </Tooltip>
+                    </TableCell>
+                    {showDevice && (
+                      <TableCell align="center">
+                        <Chip size="small" label={r.device.toUpperCase()} variant="outlined" sx={{ height: 20, fontSize: 11 }} />
+                      </TableCell>
+                    )}
+                    <TableCell align="right">
+                      {r.completed}
+                      {r.failed + r.cancelled > 0 && (
+                        <Tooltip title={`${r.failed} failed, ${r.cancelled} cancelled`}>
+                          <Box component="span" sx={{ color: "error.main", ml: 0.5 }}>
+                            (+{r.failed + r.cancelled})
+                          </Box>
+                        </Tooltip>
+                      )}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600 }}>
+                      <Tooltip title={r.total_audio_min > 0 ? `${r.total_audio_min.toFixed(1)} min processed` : ""}>
+                        <span>{r.sec_per_audio_min > 0 ? r.sec_per_audio_min.toFixed(1) : "—"}</span>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell align="right" sx={{ color: "text.secondary" }}>
+                      {r.avg_peak_mb > 0 ? `${r.avg_peak_mb.toFixed(0)} (${r.max_peak_mb.toFixed(0)})` : "—"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </Box>
         )}
       </CardContent>
