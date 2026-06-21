@@ -16,6 +16,7 @@ import {
   InputLabel,
   MenuItem,
   Select,
+  Slider,
   Stack,
   Switch,
   TextField,
@@ -85,6 +86,8 @@ export function SeparationForm({
   const [highEnd, setHighEnd] = usePersisted("uvr.highEnd", false);
   const [shifts, setShifts] = usePersisted("uvr.shifts", "2");
   const [demucsSegment, setDemucsSegment] = usePersisted("uvr.demucsSegment", "");
+  const [sampleMode, setSampleMode] = usePersisted("uvr.sampleMode", false);
+  const [sampleSeconds, setSampleSeconds] = usePersisted("uvr.sampleSeconds", 15);
 
   // Ephemeral: input choice + upload + model-info dialog.
   const [inputId, setInputId] = useState<string>(NEW_INPUT);
@@ -161,6 +164,8 @@ export function SeparationForm({
       form.append("normalization", String(normalization));
       form.append("denoise", String(denoise));
       form.append("semitone_shift", pitchShift || "0");
+      form.append("sample_mode", String(sampleMode));
+      form.append("sample_seconds", String(sampleSeconds));
       if (arch === "mdx") {
         form.append("segment_size", segmentSize || "256");
         if (overlap !== "") form.append("overlap", overlap);
@@ -367,7 +372,30 @@ export function SeparationForm({
             {toggle("Secondary stem only", secondaryOnly, setSecondaryOnly, "secondary_stem_only")}
             {toggle("Normalize output", normalization, setNormalization, "normalization")}
             {toggle("Denoise", denoise, setDenoise, "denoise")}
+            {toggle(`Sample mode${sampleMode ? ` (${sampleSeconds}s)` : ""}`, sampleMode, setSampleMode, "sample_mode")}
           </Stack>
+
+          {sampleMode && (
+            <Box sx={{ px: 1 }}>
+              <Typography variant="caption" color="text.secondary">
+                Process only a {sampleSeconds}s clip (quick preview)
+              </Typography>
+              <Slider
+                value={sampleSeconds}
+                onChange={(_, v) => setSampleSeconds(v as number)}
+                min={5}
+                max={30}
+                step={1}
+                marks={[
+                  { value: 5, label: "5s" },
+                  { value: 15, label: "15s" },
+                  { value: 30, label: "30s" },
+                ]}
+                valueLabelDisplay="auto"
+                size="small"
+              />
+            </Box>
+          )}
 
           {/* Arch-aware advanced parameters */}
           <Accordion disableGutters elevation={0} sx={{ bgcolor: "transparent", "&:before": { display: "none" } }}>

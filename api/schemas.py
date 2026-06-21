@@ -24,6 +24,11 @@ class JobStatus(str, Enum):
     running = "running"
     completed = "completed"
     failed = "failed"
+    cancelled = "cancelled"
+
+
+class JobCancelled(Exception):
+    """Raised when a running separation is cancelled by the user."""
 
 
 class SeparationOptions(BaseModel):
@@ -43,6 +48,10 @@ class SeparationOptions(BaseModel):
     semitone_shift: float = 0.0
     # None => auto-detect (GPU if available, else CPU); True/False forces it.
     use_gpu: Optional[bool] = None
+
+    # Sample mode: process only a short clip from ~1/3 into the track (quick preview).
+    sample_mode: bool = False
+    sample_seconds: int = Field(15, ge=5, le=30)
 
     # VR-specific
     aggression: int = 10

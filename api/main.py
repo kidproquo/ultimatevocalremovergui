@@ -134,6 +134,7 @@ def help_texts():
         "normalization": g("IS_NORMALIZATION_HELP"),
         "denoise": g("IS_DENOISE_HELP"),
         "pitch_shift": g("PITCH_SHIFT_HELP"),
+        "sample_mode": g("MODEL_SAMPLE_MODE_HELP"),
         # MDX
         "segment_size": g("MDX_SEGMENT_SIZE_HELP"),
         "overlap": g("MDX_OVERLAP_HELP") or g("OVERLAP_HELP"),
@@ -196,6 +197,8 @@ async def separate(
     shifts: int = Form(2),
     demucs_segment: int | None = Form(None),
     use_gpu: bool | None = Form(None),
+    sample_mode: bool = Form(False),
+    sample_seconds: int = Form(15),
 ):
     opts = SeparationOptions(
         arch=arch,
@@ -216,6 +219,8 @@ async def separate(
         shifts=shifts,
         demucs_segment=demucs_segment,
         use_gpu=use_gpu,
+        sample_mode=sample_mode,
+        sample_seconds=sample_seconds,
     )
 
     # One job at a time: reject if a separation is already running/queued.
@@ -393,6 +398,22 @@ def get_job(job_id: str):
     if not job:
         raise HTTPException(404, "Job not found")
     return _with_bytes(job.to_info())
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: str):
+    job = store.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if job.status not in ("running", "queued"):
+        raise HTTPException(409, "Job is not running")
+    from .separation import request_cancel
+
+    if not request_cancel(job_id):
+        # No live child (e.g. between stages) — mark it cancelled directly.
+        job.update(status="cancelled", message="Cancelled")
+        store.persist(job)
+    return {"cancelled": job_id}
 
 
 @app.delete("/api/jobs/{job_id}")

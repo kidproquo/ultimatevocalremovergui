@@ -56,6 +56,9 @@ export const api = {
   deleteJob: (id: string) =>
     fetch(apiUrl(`jobs/${id}`), { method: "DELETE" }).then(json<{ deleted: string }>),
 
+  cancelJob: (id: string) =>
+    fetch(apiUrl(`jobs/${id}/cancel`), { method: "POST" }).then(json<{ cancelled: string }>),
+
   getStorage: () => fetch(apiUrl("storage")).then(json<StorageInfo>),
 
   getStats: () => fetch(apiUrl("stats")).then(json<StatsInfo>),

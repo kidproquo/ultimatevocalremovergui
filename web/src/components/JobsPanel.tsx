@@ -20,14 +20,16 @@ import DownloadIcon from "@mui/icons-material/Download";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import StorageIcon from "@mui/icons-material/Storage";
 import ReplayIcon from "@mui/icons-material/Replay";
+import StopCircleIcon from "@mui/icons-material/StopCircle";
 import { api, apiUrl, humanBytes } from "../api";
 import type { JobInfo, JobStatus, StorageInfo } from "../types";
 
-const STATUS_COLOR: Record<JobStatus, "default" | "info" | "success" | "error"> = {
+const STATUS_COLOR: Record<JobStatus, "default" | "info" | "success" | "error" | "warning"> = {
   queued: "default",
   running: "info",
   completed: "success",
   failed: "error",
+  cancelled: "warning",
 };
 
 function fmtSecs(s: number): string {
@@ -132,6 +134,16 @@ function JobCard({
     }
   };
 
+  const cancel = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await api.cancelJob(job.id);
+      onDeleted();
+    } catch (err) {
+      console.error("cancel failed", err);
+    }
+  };
+
   return (
     <Accordion
       expanded={open}
@@ -185,6 +197,13 @@ function JobCard({
             <Typography variant="caption" color="text.secondary">
               {(job.options?.model_name as string) || ""}
             </Typography>
+            {active && (
+              <Tooltip title="Cancel job">
+                <IconButton size="small" color="warning" onClick={cancel}>
+                  <StopCircleIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
             {canReuse && (
               <Tooltip title="Reuse these settings in the form">
                 <IconButton
@@ -252,7 +271,9 @@ function JobCard({
               maxHeight: 200,
               overflow: "auto",
               fontSize: 12,
+              // Terminal-style: dark bg + light text so it's readable in both themes.
               bgcolor: "#0b0d12",
+              color: "#cbd5e1",
               borderRadius: 1,
               whiteSpace: "pre-wrap",
             }}

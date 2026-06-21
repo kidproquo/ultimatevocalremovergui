@@ -155,6 +155,10 @@ class JobStore:
         self._persist_dir = path
         os.makedirs(path, exist_ok=True)
 
+    def persist(self, job: Job):
+        """Public wrapper to flush a job to disk (e.g. after a direct cancel)."""
+        self._persist(job)
+
     def _persist(self, job: Job):
         if not self._persist_dir:
             return
@@ -201,12 +205,17 @@ class JobStore:
         """Run ``target(job)`` on the worker pool, tracking status/errors."""
 
         def _run():
+            from .schemas import JobCancelled
+
             job.update(status=JobStatus.running.value)
             self._persist(job)
             try:
                 target(job)
                 if job.status == JobStatus.running.value:
                     job.update(status=JobStatus.completed.value, progress=1.0)
+            except JobCancelled:
+                job.append_log("\nCancelled by user.\n")
+                job.update(status=JobStatus.cancelled.value, message="Cancelled", error=None)
             except Exception as exc:  # noqa: BLE001 - surface any engine error
                 import traceback
 

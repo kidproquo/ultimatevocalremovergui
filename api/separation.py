@@ -15,7 +15,7 @@ import threading
 from typing import Any
 
 from .headless import HeadlessRoot
-from .schemas import OutputFile, SeparationOptions
+from .schemas import JobCancelled, OutputFile, SeparationOptions
 
 # Importing UVR runs heavy module-level code (and pulls torch/onnx). Do it once,
 # lazily, behind a lock so concurrent first-calls don't race.
@@ -263,6 +263,11 @@ def run_separation(audio_path: str, export_path: str, opts: SeparationOptions, j
     job.append_log(_settings_summary(opts, device) + "\n")
     t0 = time.monotonic()
 
+    # Sample mode: replace the audio with a short clip (~1/3 into the track),
+    # mirroring the desktop app's create_sample. Quick preview of a model/setting.
+    if opts.sample_mode:
+        audio_path = _make_sample(audio_path, opts.sample_seconds, export_path, job)
+
     method = getattr(consts, _ARCH_TO_METHOD[opts.arch.value])
     model = uvr.ModelData(opts.model_name, selected_process_method=method, is_dry_check=True)
 
@@ -341,10 +346,59 @@ def run_separation(audio_path: str, export_path: str, opts: SeparationOptions, j
     return outputs
 
 
+def _make_sample(audio_path: str, seconds: int, dest_dir: str, job) -> str:
+    """Write a `seconds`-long clip from ~1/3 into the track (UVR's create_sample)."""
+    import librosa
+    import soundfile as sf
+    import audioread
+
+    try:
+        with audioread.audio_open(audio_path) as f:
+            track_length = int(f.duration)
+    except Exception:
+        y, sr = librosa.load(audio_path, mono=False, sr=44100)
+        track_length = int(librosa.get_duration(y=y, sr=sr))
+
+    clip = int(seconds)
+    if track_length >= clip:
+        offset = track_length // 3
+        if offset + clip > track_length:
+            offset = max(0, track_length - clip)
+    else:
+        offset, clip = 0, track_length
+
+    sample = librosa.load(audio_path, offset=offset, duration=clip, mono=False, sr=44100)[0].T
+    os.makedirs(dest_dir, exist_ok=True)
+    out = os.path.join(dest_dir, f"_sample_{clip}s.wav")
+    sf.write(out, sample, 44100)
+    job.append_log(f"Sample mode: {clip}s clip from {offset}s into the track.\n")
+    return out
+
+
 # --- Subprocess isolation ---------------------------------------------------
 # Separation runs in a child process so an OOM (or any hard crash) kills only
 # that child — the API stays up and the job fails cleanly. The kernel's OOM
 # killer targets the fat separation child over the small parent (uvicorn).
+#
+# The running child is tracked so a cancel request can terminate it.
+
+import threading as _threading  # local alias; module already uses time/os
+
+_proc_lock = _threading.Lock()
+_procs: dict[str, "multiprocessing.Process"] = {}
+_cancelled: set[str] = set()
+
+
+def request_cancel(job_id: str) -> bool:
+    """Terminate the running separation child for ``job_id``. Returns True if a
+    live process was signalled."""
+    with _proc_lock:
+        _cancelled.add(job_id)
+        proc = _procs.get(job_id)
+    if proc is not None and proc.is_alive():
+        proc.terminate()
+        return True
+    return False
 
 
 class _ChildJob:
@@ -387,31 +441,42 @@ def run_separation_isolated(audio_path: str, export_path: str, opts: SeparationO
         daemon=True,
     )
     proc.start()
+    with _proc_lock:
+        _procs[job.id] = proc
+        _cancelled.discard(job.id)
 
     result = None
     error = None
-    while True:
-        try:
-            kind, payload = q.get(timeout=1.0)
-        except Empty:
-            if not proc.is_alive():
-                break  # died without reporting (likely killed)
-            continue
-        if kind == "log":
-            job.append_log(payload)
-        elif kind == "update":
-            job.update(**payload)
-        elif kind == "done":
-            result = payload
-            break
-        elif kind == "error":
-            error = payload
-            break
+    try:
+        while True:
+            try:
+                kind, payload = q.get(timeout=1.0)
+            except Empty:
+                if not proc.is_alive():
+                    break  # died without reporting (killed/cancelled)
+                continue
+            if kind == "log":
+                job.append_log(payload)
+            elif kind == "update":
+                job.update(**payload)
+            elif kind == "done":
+                result = payload
+                break
+            elif kind == "error":
+                error = payload
+                break
 
-    proc.join(timeout=10)
-    if proc.is_alive():
-        proc.terminate()
+        proc.join(timeout=10)
+        if proc.is_alive():
+            proc.terminate()
+    finally:
+        with _proc_lock:
+            _procs.pop(job.id, None)
+            was_cancelled = job.id in _cancelled
+            _cancelled.discard(job.id)
 
+    if was_cancelled or proc.exitcode == -15:  # SIGTERM => user cancel
+        raise JobCancelled("Cancelled by user")
     if error is not None:
         raise RuntimeError(error)
     if result is None:

@@ -40,7 +40,7 @@ export interface OutputFile {
   url: string;
 }
 
-export type JobStatus = "queued" | "running" | "completed" | "failed";
+export type JobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 
 export interface JobInfo {
   id: string;
