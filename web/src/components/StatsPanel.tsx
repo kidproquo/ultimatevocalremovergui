@@ -45,19 +45,27 @@ export function StatsPanel({ stats }: { stats: StatsInfo | null }) {
               <TableRow>
                 <TableCell>Model</TableCell>
                 <TableCell align="center">Device</TableCell>
-                <TableCell align="right">Runs</TableCell>
                 <TableCell align="right">
-                  <Tooltip title="Average processing seconds per input MB (lower is faster)">
+                  <Tooltip title="Completed runs (failed/cancelled in red)">
+                    <span>Runs</span>
+                  </Tooltip>
+                </TableCell>
+                <TableCell align="right">
+                  <Tooltip title="Avg processing seconds per input MB on full runs (lower = faster)">
                     <span>s / MB</span>
                   </Tooltip>
                 </TableCell>
-                <TableCell align="right">Total</TableCell>
+                <TableCell align="right">
+                  <Tooltip title="Peak memory — average (worst-case)">
+                    <span>Peak mem</span>
+                  </Tooltip>
+                </TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {rows.map((r) => (
                 <TableRow key={`${r.model}|${r.device}`}>
-                  <TableCell sx={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <TableCell sx={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     <Tooltip title={`${r.model} (${r.arch.toUpperCase()})`}>
                       <span>{r.model}</span>
                     </Tooltip>
@@ -65,10 +73,23 @@ export function StatsPanel({ stats }: { stats: StatsInfo | null }) {
                   <TableCell align="center">
                     <Chip size="small" label={r.device.toUpperCase()} variant="outlined" sx={{ height: 20, fontSize: 11 }} />
                   </TableCell>
-                  <TableCell align="right">{r.runs}</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600 }}>{r.sec_per_mb.toFixed(2)}</TableCell>
+                  <TableCell align="right">
+                    {r.completed}
+                    {r.failed + r.cancelled > 0 && (
+                      <Tooltip title={`${r.failed} failed, ${r.cancelled} cancelled`}>
+                        <Box component="span" sx={{ color: "error.main", ml: 0.5 }}>
+                          (+{r.failed + r.cancelled})
+                        </Box>
+                      </Tooltip>
+                    )}
+                  </TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 600 }}>
+                    {r.sec_per_mb > 0 ? r.sec_per_mb.toFixed(2) : "—"}
+                  </TableCell>
                   <TableCell align="right" sx={{ color: "text.secondary" }}>
-                    {r.total_mb.toFixed(0)} MB / {r.total_sec.toFixed(0)}s
+                    {r.avg_peak_mb > 0
+                      ? `${r.avg_peak_mb.toFixed(0)} (${r.max_peak_mb.toFixed(0)})`
+                      : "—"}
                   </TableCell>
                 </TableRow>
               ))}

@@ -255,24 +255,27 @@ async def separate(
     def _task(j):
         outputs = run_separation_isolated(audio_path, export_path, opts, j)
         j.update(outputs=outputs, message="Done")
-        _record_metric(j, opts)
 
-    store.submit(job, _task)
+    store.submit(job, _task, on_finish=lambda j: _record_metric(j, opts))
     return job.to_info()
 
 
 def _record_metric(job, opts: SeparationOptions):
-    """Append one performance record per completed separation for /api/stats."""
-    if not job.duration_sec or not job.input_bytes:
+    """Append a performance record for every finished separation (completed,
+    failed, or cancelled) — captures device, size, time, and peak memory."""
+    if job.status not in ("completed", "failed", "cancelled"):
         return
     rec = {
         "ts": job.updated_at,
         "job_id": job.id,
+        "status": job.status,
         "model": opts.model_name,
         "arch": opts.arch.value,
         "device": job.device or "cpu",
         "input_bytes": job.input_bytes,
         "duration_sec": job.duration_sec,
+        "peak_mem_bytes": job.peak_mem_bytes,
+        "sample_mode": opts.sample_mode,
     }
     try:
         with open(METRICS_FILE, "a") as f:
@@ -373,19 +376,34 @@ def stats():
                 except ValueError:
                     continue
                 key = (r.get("model", "?"), r.get("arch", "?"), r.get("device", "cpu"))
-                a = agg.setdefault(key, {"runs": 0, "bytes": 0, "sec": 0.0, "last": 0.0})
+                a = agg.setdefault(key, {
+                    "runs": 0, "completed": 0, "failed": 0, "cancelled": 0,
+                    "bytes": 0, "sec": 0.0, "peaks": [], "last": 0.0,
+                })
+                status = r.get("status", "completed")
                 a["runs"] += 1
-                a["bytes"] += r.get("input_bytes", 0)
-                a["sec"] += r.get("duration_sec", 0.0)
+                a[status] = a.get(status, 0) + 1
+                # Throughput only from full (non-sample) completed runs.
+                if status == "completed" and not r.get("sample_mode") and r.get("duration_sec"):
+                    a["bytes"] += r.get("input_bytes", 0)
+                    a["sec"] += r.get("duration_sec", 0.0)
+                if r.get("peak_mem_bytes"):
+                    a["peaks"].append(r["peak_mem_bytes"])
                 a["last"] = max(a["last"], r.get("ts", 0.0))
 
+    mib = 1024 * 1024
     rows = []
     for (model, arch, device), a in agg.items():
-        mb = a["bytes"] / (1024 * 1024)
+        mb = a["bytes"] / mib
+        peaks_mb = [p / mib for p in a["peaks"]]
         rows.append(StatRow(
-            model=model, arch=arch, device=device, runs=a["runs"],
+            model=model, arch=arch, device=device,
+            runs=a["runs"], completed=a.get("completed", 0),
+            failed=a.get("failed", 0), cancelled=a.get("cancelled", 0),
             total_mb=round(mb, 1), total_sec=round(a["sec"], 1),
             sec_per_mb=round(a["sec"] / mb, 3) if mb > 0 else 0.0,
+            avg_peak_mb=round(sum(peaks_mb) / len(peaks_mb), 0) if peaks_mb else 0.0,
+            max_peak_mb=round(max(peaks_mb), 0) if peaks_mb else 0.0,
             last_run=a["last"],
         ))
     rows.sort(key=lambda r: r.last_run, reverse=True)

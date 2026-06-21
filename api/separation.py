@@ -445,6 +445,26 @@ def run_separation_isolated(audio_path: str, export_path: str, opts: SeparationO
         _procs[job.id] = proc
         _cancelled.discard(job.id)
 
+    # Sample the child's peak RSS (works even if it's later OOM-killed: we keep
+    # the last reading before death). Includes any grandchildren to be safe.
+    try:
+        import psutil
+
+        ps = psutil.Process(proc.pid)
+    except Exception:
+        ps = None
+    peak_rss = 0
+
+    def _sample_mem():
+        nonlocal peak_rss
+        if ps is None:
+            return
+        try:
+            rss = ps.memory_info().rss + sum(c.memory_info().rss for c in ps.children(recursive=True))
+            peak_rss = max(peak_rss, rss)
+        except Exception:
+            pass
+
     result = None
     error = None
     try:
@@ -452,9 +472,11 @@ def run_separation_isolated(audio_path: str, export_path: str, opts: SeparationO
             try:
                 kind, payload = q.get(timeout=1.0)
             except Empty:
+                _sample_mem()
                 if not proc.is_alive():
                     break  # died without reporting (killed/cancelled)
                 continue
+            _sample_mem()
             if kind == "log":
                 job.append_log(payload)
             elif kind == "update":
@@ -470,6 +492,8 @@ def run_separation_isolated(audio_path: str, export_path: str, opts: SeparationO
         if proc.is_alive():
             proc.terminate()
     finally:
+        if peak_rss:
+            job.update(peak_mem_bytes=peak_rss)
         with _proc_lock:
             _procs.pop(job.id, None)
             was_cancelled = job.id in _cancelled

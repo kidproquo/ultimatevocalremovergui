@@ -49,6 +49,7 @@ class Job:
     input_bytes: int = 0
     started_at: Optional[float] = None
     duration_sec: Optional[float] = None
+    peak_mem_bytes: int = 0
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -91,6 +92,7 @@ class Job:
                 input_bytes=self.input_bytes,
                 started_at=self.started_at,
                 duration_sec=self.duration_sec,
+                peak_mem_bytes=self.peak_mem_bytes,
                 created_at=self.created_at,
                 updated_at=self.updated_at,
             )
@@ -121,6 +123,7 @@ class Job:
                 "input_bytes": self.input_bytes,
                 "started_at": self.started_at,
                 "duration_sec": self.duration_sec,
+                "peak_mem_bytes": self.peak_mem_bytes,
                 "created_at": self.created_at,
                 "updated_at": self.updated_at,
             }
@@ -140,6 +143,7 @@ class Job:
         job.input_bytes = d.get("input_bytes", 0)
         job.started_at = d.get("started_at")
         job.duration_sec = d.get("duration_sec")
+        job.peak_mem_bytes = d.get("peak_mem_bytes", 0)
         job.created_at = d.get("created_at", time.time())
         job.updated_at = d.get("updated_at", job.created_at)
         return job
@@ -201,8 +205,9 @@ class JobStore:
                     return j
         return None
 
-    def submit(self, job: Job, target: Callable[[Job], None]):
-        """Run ``target(job)`` on the worker pool, tracking status/errors."""
+    def submit(self, job: Job, target: Callable[[Job], None], on_finish: Optional[Callable[[Job], None]] = None):
+        """Run ``target(job)`` on the worker pool, tracking status/errors.
+        ``on_finish`` runs after the final status is set (any outcome)."""
 
         def _run():
             from .schemas import JobCancelled
@@ -222,6 +227,11 @@ class JobStore:
                 job.append_log("\n" + traceback.format_exc())
                 job.update(status=JobStatus.failed.value, error=str(exc))
             finally:
+                if on_finish:
+                    try:
+                        on_finish(job)
+                    except Exception:  # noqa: BLE001 - metrics are best-effort
+                        pass
                 self._persist(job)
 
         _executor.submit(_run)

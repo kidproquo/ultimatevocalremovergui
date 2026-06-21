@@ -58,6 +58,7 @@ export interface JobInfo {
   input_bytes: number;
   started_at?: number | null;
   duration_sec?: number | null;
+  peak_mem_bytes: number;
   created_at: number;
   updated_at: number;
 }
@@ -67,9 +68,14 @@ export interface StatRow {
   arch: string;
   device: string;
   runs: number;
+  completed: number;
+  failed: number;
+  cancelled: number;
   total_mb: number;
   total_sec: number;
   sec_per_mb: number;
+  avg_peak_mb: number;
+  max_peak_mb: number;
   last_run: number;
 }
 

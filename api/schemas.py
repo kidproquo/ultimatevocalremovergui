@@ -113,6 +113,7 @@ class JobInfo(BaseModel):
     input_bytes: int = 0  # size of the input audio processed
     started_at: Optional[float] = None  # wall-clock when processing began
     duration_sec: Optional[float] = None  # processing wall-clock time
+    peak_mem_bytes: int = 0  # peak RSS of the separation child process
     created_at: float = 0.0
     updated_at: float = 0.0
 
@@ -136,10 +137,15 @@ class StatRow(BaseModel):
     model: str
     arch: str
     device: str
-    runs: int
+    runs: int  # total finished (any outcome)
+    completed: int
+    failed: int
+    cancelled: int
     total_mb: float
     total_sec: float
-    sec_per_mb: float  # average processing seconds per input megabyte
+    sec_per_mb: float  # avg processing seconds per input MB (full, non-sample runs)
+    avg_peak_mb: float  # average peak memory across runs that reported it
+    max_peak_mb: float  # worst-case peak memory seen
     last_run: float
 
 

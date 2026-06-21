@@ -189,6 +189,13 @@ function JobCard({
                 </Tooltip>
               )
             )}
+            {job.peak_mem_bytes > 0 && (
+              <Tooltip title="Peak memory used by this job">
+                <Typography variant="caption" color="text.secondary">
+                  {humanBytes(job.peak_mem_bytes)} mem
+                </Typography>
+              </Tooltip>
+            )}
             {job.bytes > 0 && (
               <Typography variant="caption" color="text.secondary">
                 {humanBytes(job.bytes)}
