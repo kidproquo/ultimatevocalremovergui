@@ -53,7 +53,11 @@ class SeparationOptions(BaseModel):
 
     # MDX-specific
     segment_size: int = 256
-    overlap: Optional[float] = None  # None => "Default"
+    overlap: Optional[float] = None  # None => "Default"; also used by Demucs
+
+    # Demucs-specific
+    shifts: int = 2
+    demucs_segment: Optional[int] = None  # None => "Default"
 
 
 class ModelInfo(BaseModel):
@@ -81,8 +85,16 @@ class JobInfo(BaseModel):
     input_filename: Optional[str] = None
     options: Optional[dict] = None
     outputs: list[OutputFile] = Field(default_factory=list)
+    bytes: int = 0  # disk used by this job's input + output files
     created_at: float = 0.0
     updated_at: float = 0.0
+
+
+class StorageInfo(BaseModel):
+    total_bytes: int
+    uploads_bytes: int
+    outputs_bytes: int
+    job_count: int
 
 
 class DownloadRequest(BaseModel):

@@ -13,7 +13,7 @@ import GraphicEqIcon from "@mui/icons-material/GraphicEq";
 import MemoryIcon from "@mui/icons-material/Memory";
 import BoltIcon from "@mui/icons-material/Bolt";
 import { api } from "./api";
-import type { JobInfo, ModelInfo, SystemInfo } from "./types";
+import type { JobInfo, ModelInfo, StorageInfo, SystemInfo } from "./types";
 import { SeparationForm } from "./components/SeparationForm";
 import { JobsPanel } from "./components/JobsPanel";
 
@@ -21,6 +21,7 @@ export function App() {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [jobs, setJobs] = useState<JobInfo[]>([]);
   const [system, setSystem] = useState<SystemInfo | null>(null);
+  const [storage, setStorage] = useState<StorageInfo | null>(null);
 
   const refreshModels = useCallback(async () => {
     try {
@@ -33,6 +34,7 @@ export function App() {
   const refreshJobs = useCallback(async () => {
     try {
       setJobs(await api.listJobs());
+      setStorage(await api.getStorage());
     } catch (e) {
       console.error("Failed to load jobs", e);
     }
@@ -92,7 +94,7 @@ export function App() {
             />
           </Grid>
           <Grid item xs={12} md={7}>
-            <JobsPanel jobs={jobs} />
+            <JobsPanel jobs={jobs} storage={storage} onChanged={refreshJobs} />
           </Grid>
         </Grid>
       </Container>

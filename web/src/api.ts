@@ -1,4 +1,4 @@
-import type { Arch, JobInfo, ModelInfo, SystemInfo } from "./types";
+import type { Arch, JobInfo, ModelInfo, StorageInfo, SystemInfo } from "./types";
 
 // Derive the API base from the document's base URL so the app works both at a
 // domain root (https://host/ -> https://host/api/) and under a sub-path
@@ -35,4 +35,16 @@ export const api = {
   listJobs: () => fetch(apiUrl("jobs")).then(json<JobInfo[]>),
 
   getJob: (id: string) => fetch(apiUrl(`jobs/${id}`)).then(json<JobInfo>),
+
+  deleteJob: (id: string) =>
+    fetch(apiUrl(`jobs/${id}`), { method: "DELETE" }).then(json<{ deleted: string }>),
+
+  getStorage: () => fetch(apiUrl("storage")).then(json<StorageInfo>),
 };
+
+export function humanBytes(n: number): string {
+  if (!n) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+  return `${(n / 1024 ** i).toFixed(i ? 1 : 0)} ${units[i]}`;
+}

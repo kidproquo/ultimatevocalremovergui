@@ -37,6 +37,14 @@ export interface JobInfo {
   input_filename?: string | null;
   options?: Record<string, unknown> | null;
   outputs: OutputFile[];
+  bytes: number;
   created_at: number;
   updated_at: number;
+}
+
+export interface StorageInfo {
+  total_bytes: number;
+  uploads_bytes: number;
+  outputs_bytes: number;
+  job_count: number;
 }

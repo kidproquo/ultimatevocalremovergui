@@ -1,5 +1,8 @@
 import { useMemo, useState } from "react";
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Box,
   Button,
@@ -15,11 +18,14 @@ import {
   Select,
   Stack,
   Switch,
+  TextField,
   Tooltip,
   Typography,
 } from "@mui/material";
 import DownloadIcon from "@mui/icons-material/Download";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import TuneIcon from "@mui/icons-material/Tune";
 import { api } from "../api";
 import type { Arch, ModelInfo } from "../types";
 
@@ -30,6 +36,7 @@ const ARCHS: { value: Arch; label: string }[] = [
 ];
 
 const FORMATS = ["WAV", "FLAC", "MP3"];
+const WINDOW_SIZES = [320, 512, 1024];
 
 interface Props {
   models: ModelInfo[];
@@ -46,6 +53,22 @@ export function SeparationForm({ models, onModelsChanged, onJobCreated }: Props)
   const [secondaryOnly, setSecondaryOnly] = useState(false);
   const [normalization, setNormalization] = useState(false);
   const [denoise, setDenoise] = useState(false);
+
+  // Advanced — shared
+  const [pitchShift, setPitchShift] = useState("0");
+  const [overlap, setOverlap] = useState(""); // "" => Default (MDX & Demucs)
+  // Advanced — MDX
+  const [segmentSize, setSegmentSize] = useState("256");
+  // Advanced — VR
+  const [aggression, setAggression] = useState("10");
+  const [windowSize, setWindowSize] = useState("512");
+  const [tta, setTta] = useState(false);
+  const [postProcess, setPostProcess] = useState(false);
+  const [highEnd, setHighEnd] = useState(false);
+  // Advanced — Demucs
+  const [shifts, setShifts] = useState("2");
+  const [demucsSegment, setDemucsSegment] = useState(""); // "" => Default
+
   const [submitting, setSubmitting] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +97,25 @@ export function SeparationForm({ models, onModelsChanged, onJobCreated }: Props)
       form.append("secondary_stem_only", String(secondaryOnly));
       form.append("normalization", String(normalization));
       form.append("denoise", String(denoise));
+      form.append("semitone_shift", pitchShift || "0");
+
+      // Only send the params that apply to the chosen architecture, so the
+      // recorded job settings reflect what actually took effect.
+      if (arch === "mdx") {
+        form.append("segment_size", segmentSize || "256");
+        if (overlap !== "") form.append("overlap", overlap);
+      } else if (arch === "vr") {
+        form.append("aggression", aggression || "10");
+        form.append("window_size", windowSize);
+        form.append("tta", String(tta));
+        form.append("post_process", String(postProcess));
+        form.append("high_end_process", String(highEnd));
+      } else if (arch === "demucs") {
+        form.append("shifts", shifts || "2");
+        if (overlap !== "") form.append("overlap", overlap);
+        if (demucsSegment !== "") form.append("demucs_segment", demucsSegment);
+      }
+
       await api.separate(form);
       onJobCreated();
     } catch (e) {
@@ -101,6 +143,18 @@ export function SeparationForm({ models, onModelsChanged, onJobCreated }: Props)
       setDownloading(false);
     }
   };
+
+  const num = (label: string, value: string, setter: (v: string) => void, props = {}) => (
+    <TextField
+      label={label}
+      type="number"
+      size="small"
+      value={value}
+      onChange={(e) => setter(e.target.value)}
+      fullWidth
+      {...props}
+    />
+  );
 
   return (
     <Card>
@@ -192,41 +246,100 @@ export function SeparationForm({ models, onModelsChanged, onJobCreated }: Props)
           <Stack>
             <FormControlLabel
               control={
-                <Switch
-                  checked={primaryOnly}
-                  onChange={(e) => setPrimaryOnly(e.target.checked)}
-                />
+                <Switch checked={primaryOnly} onChange={(e) => setPrimaryOnly(e.target.checked)} />
               }
               label="Primary stem only"
             />
             <FormControlLabel
               control={
-                <Switch
-                  checked={secondaryOnly}
-                  onChange={(e) => setSecondaryOnly(e.target.checked)}
-                />
+                <Switch checked={secondaryOnly} onChange={(e) => setSecondaryOnly(e.target.checked)} />
               }
               label="Secondary stem only"
             />
             <FormControlLabel
               control={
-                <Switch
-                  checked={normalization}
-                  onChange={(e) => setNormalization(e.target.checked)}
-                />
+                <Switch checked={normalization} onChange={(e) => setNormalization(e.target.checked)} />
               }
               label="Normalize output"
             />
             <FormControlLabel
-              control={
-                <Switch
-                  checked={denoise}
-                  onChange={(e) => setDenoise(e.target.checked)}
-                />
-              }
+              control={<Switch checked={denoise} onChange={(e) => setDenoise(e.target.checked)} />}
               label="Denoise"
             />
           </Stack>
+
+          {/* Arch-aware advanced parameters */}
+          <Accordion disableGutters elevation={0} sx={{ bgcolor: "transparent", "&:before": { display: "none" } }}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: 0 }}>
+              <TuneIcon fontSize="small" sx={{ mr: 1, color: "text.secondary" }} />
+              <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                Advanced ({ARCHS.find((a) => a.value === arch)?.label} settings)
+              </Typography>
+            </AccordionSummary>
+            <AccordionDetails sx={{ px: 0 }}>
+              <Stack spacing={2}>
+                {arch === "mdx" && (
+                  <>
+                    {num("Segment size", segmentSize, setSegmentSize, { inputProps: { min: 32, step: 32 } })}
+                    {num("Overlap (blank = default)", overlap, setOverlap, {
+                      inputProps: { min: 0, max: 0.99, step: 0.05 },
+                      placeholder: "Default",
+                    })}
+                  </>
+                )}
+
+                {arch === "vr" && (
+                  <>
+                    {num("Aggression (0–100)", aggression, setAggression, { inputProps: { min: 0, max: 100 } })}
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Window size</InputLabel>
+                      <Select label="Window size" value={windowSize} onChange={(e) => setWindowSize(e.target.value)}>
+                        {WINDOW_SIZES.map((w) => (
+                          <MenuItem key={w} value={String(w)}>
+                            {w}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <FormControlLabel
+                      control={<Switch checked={tta} onChange={(e) => setTta(e.target.checked)} />}
+                      label="TTA (test-time augmentation)"
+                    />
+                    <FormControlLabel
+                      control={<Switch checked={postProcess} onChange={(e) => setPostProcess(e.target.checked)} />}
+                      label="Post-process"
+                    />
+                    <FormControlLabel
+                      control={<Switch checked={highEnd} onChange={(e) => setHighEnd(e.target.checked)} />}
+                      label="High-end process"
+                    />
+                  </>
+                )}
+
+                {arch === "demucs" && (
+                  <>
+                    {num("Shifts", shifts, setShifts, { inputProps: { min: 0, max: 10 } })}
+                    {num("Overlap (blank = default)", overlap, setOverlap, {
+                      inputProps: { min: 0, max: 0.99, step: 0.05 },
+                      placeholder: "Default",
+                    })}
+                    {num("Segment (blank = default)", demucsSegment, setDemucsSegment, {
+                      inputProps: { min: 1 },
+                      placeholder: "Default",
+                    })}
+                  </>
+                )}
+
+                {num("Pitch shift (semitones)", pitchShift, setPitchShift, { inputProps: { step: 1 } })}
+
+                <Typography variant="caption" color="text.secondary">
+                  Compute device is auto-detected (GPU when available, else CPU) and
+                  shown in the header — there's no manual toggle, since you'd
+                  always want the GPU when one is present.
+                </Typography>
+              </Stack>
+            </AccordionDetails>
+          </Accordion>
 
           {error && <Alert severity="error">{error}</Alert>}
 

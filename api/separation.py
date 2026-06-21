@@ -186,12 +186,53 @@ def _build_overrides(opts: SeparationOptions, use_gpu: bool) -> dict[str, Any]:
         "is_high_end_process": opts.high_end_process,
         # MDX
         "mdx_segment_size": str(int(opts.segment_size)),
+        # Demucs
+        "shifts": str(int(opts.shifts)),
     }
     if opts.overlap is not None:
+        # MDX reads overlap_mdx/overlap_mdx23; Demucs reads overlap.
         overrides["overlap"] = str(opts.overlap)
         overrides["overlap_mdx"] = str(opts.overlap)
         overrides["overlap_mdx23"] = str(opts.overlap)
+    if opts.demucs_segment is not None:
+        overrides["segment"] = str(int(opts.demucs_segment))
     return overrides
+
+
+def _settings_summary(opts: SeparationOptions, device: str) -> str:
+    """Human-readable list of the effective settings for the job log — only the
+    knobs that apply to the chosen architecture, so it reflects what took
+    effect."""
+    lines = [
+        "Settings",
+        f"  model:        {opts.model_name} ({opts.arch.value.upper()})",
+        f"  device:       {device}",
+        f"  output:       {opts.output_format.value}",
+        f"  stems:        {'primary only' if opts.primary_stem_only else 'secondary only' if opts.secondary_stem_only else 'both'}",
+        f"  normalize:    {opts.normalization}",
+        f"  denoise:      {opts.denoise}",
+        f"  pitch shift:  {opts.semitone_shift} semitones",
+    ]
+    if opts.arch.value == "mdx":
+        lines += [
+            f"  segment size: {opts.segment_size}",
+            f"  overlap:      {opts.overlap if opts.overlap is not None else 'default'}",
+        ]
+    elif opts.arch.value == "vr":
+        lines += [
+            f"  aggression:   {opts.aggression}",
+            f"  window size:  {opts.window_size}",
+            f"  TTA:          {opts.tta}",
+            f"  post-process: {opts.post_process}",
+            f"  high-end:     {opts.high_end_process}",
+        ]
+    elif opts.arch.value == "demucs":
+        lines += [
+            f"  shifts:       {opts.shifts}",
+            f"  overlap:      {opts.overlap if opts.overlap is not None else 'default'}",
+            f"  segment:      {opts.demucs_segment if opts.demucs_segment is not None else 'default'}",
+        ]
+    return "\n".join(lines) + "\n"
 
 
 def run_separation(audio_path: str, export_path: str, opts: SeparationOptions, job) -> list[OutputFile]:
@@ -210,7 +251,7 @@ def run_separation(audio_path: str, export_path: str, opts: SeparationOptions, j
     status = gpu_status(separate)
     device = "cuda" if (use_gpu and status["cuda"]) else "mps" if (use_gpu and status["mps"]) else "cpu"
     job.update(message=f"Running on {device.upper()}")
-    job.append_log(f"Device: {device} (gpu requested={use_gpu}, cuda={status['cuda']}, mps={status['mps']})\n")
+    job.append_log(_settings_summary(opts, device) + "\n")
 
     method = getattr(consts, _ARCH_TO_METHOD[opts.arch.value])
     model = uvr.ModelData(opts.model_name, selected_process_method=method, is_dry_check=True)

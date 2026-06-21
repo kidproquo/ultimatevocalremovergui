@@ -17,6 +17,7 @@ from .schemas import (
     ModelInfo,
     OutputFormat,
     SeparationOptions,
+    StorageInfo,
 )
 from .separation import run_separation
 
@@ -26,6 +27,11 @@ UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 JOBS_DIR = os.path.join(DATA_DIR, "jobs")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(JOBS_DIR, exist_ok=True)
+
+# Persist job records to the data volume and recover prior history on startup so
+# the files list survives restarts/rebuilds.
+store.set_persist_dir(JOBS_DIR)
+store.load_from_disk()
 
 app = FastAPI(title="Ultimate Vocal Remover API", version="1.0.0")
 
@@ -86,6 +92,8 @@ async def separate(
     high_end_process: bool = Form(False),
     segment_size: int = Form(256),
     overlap: float | None = Form(None),
+    shifts: int = Form(2),
+    demucs_segment: int | None = Form(None),
     use_gpu: bool | None = Form(None),
 ):
     opts = SeparationOptions(
@@ -104,6 +112,8 @@ async def separate(
         high_end_process=high_end_process,
         segment_size=segment_size,
         overlap=overlap,
+        shifts=shifts,
+        demucs_segment=demucs_segment,
         use_gpu=use_gpu,
     )
 
@@ -130,9 +140,71 @@ async def separate(
     return job.to_info()
 
 
+def _dir_size(path: str) -> int:
+    total = 0
+    if os.path.isdir(path):
+        for entry in os.scandir(path):
+            try:
+                if entry.is_file():
+                    total += entry.stat().st_size
+            except OSError:
+                pass
+    return total
+
+
+def _upload_files(job_id: str) -> list[str]:
+    prefix = f"{job_id}_"
+    if not os.path.isdir(UPLOAD_DIR):
+        return []
+    return [
+        os.path.join(UPLOAD_DIR, f)
+        for f in os.listdir(UPLOAD_DIR)
+        if f.startswith(prefix)
+    ]
+
+
+def _job_bytes(job_id: str) -> int:
+    """Disk used by a job: its output dir (minus job.json) + its uploaded input."""
+    out = _dir_size(os.path.join(JOBS_DIR, job_id))
+    meta = os.path.join(JOBS_DIR, job_id, "job.json")
+    if os.path.isfile(meta):
+        out -= os.path.getsize(meta)
+    inp = sum(os.path.getsize(f) for f in _upload_files(job_id) if os.path.isfile(f))
+    return max(0, out) + inp
+
+
+def _with_bytes(info: JobInfo) -> JobInfo:
+    info.bytes = _job_bytes(info.id)
+    return info
+
+
 @app.get("/api/jobs", response_model=list[JobInfo])
 def list_jobs():
-    return [j.to_info() for j in store.list()]
+    return [_with_bytes(j.to_info()) for j in store.list()]
+
+
+@app.get("/api/storage", response_model=StorageInfo)
+def storage():
+    jobs = store.list()
+    uploads = sum(
+        os.path.getsize(f)
+        for j in jobs
+        for f in _upload_files(j.id)
+        if os.path.isfile(f)
+    )
+    outputs = 0
+    for j in jobs:
+        d = _dir_size(os.path.join(JOBS_DIR, j.id))
+        meta = os.path.join(JOBS_DIR, j.id, "job.json")
+        if os.path.isfile(meta):
+            d -= os.path.getsize(meta)
+        outputs += max(0, d)
+    return StorageInfo(
+        total_bytes=uploads + outputs,
+        uploads_bytes=uploads,
+        outputs_bytes=outputs,
+        job_count=len(jobs),
+    )
 
 
 @app.get("/api/jobs/{job_id}", response_model=JobInfo)
@@ -140,7 +212,23 @@ def get_job(job_id: str):
     job = store.get(job_id)
     if not job:
         raise HTTPException(404, "Job not found")
-    return job.to_info()
+    return _with_bytes(job.to_info())
+
+
+@app.delete("/api/jobs/{job_id}")
+def delete_job(job_id: str):
+    job = store.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    # Remove output dir (includes the persisted job.json) and the input upload.
+    shutil.rmtree(os.path.join(JOBS_DIR, job_id), ignore_errors=True)
+    for f in _upload_files(job_id):
+        try:
+            os.remove(f)
+        except OSError:
+            pass
+    store.delete(job_id)
+    return {"deleted": job_id}
 
 
 @app.get("/api/jobs/{job_id}/files/{filename}")

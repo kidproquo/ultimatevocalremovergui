@@ -8,14 +8,19 @@ import {
   Card,
   CardContent,
   Chip,
+  CircularProgress,
+  IconButton,
   LinearProgress,
   Stack,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import DownloadIcon from "@mui/icons-material/Download";
-import { apiUrl } from "../api";
-import type { JobInfo, JobStatus } from "../types";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import StorageIcon from "@mui/icons-material/Storage";
+import { api, apiUrl, humanBytes } from "../api";
+import type { JobInfo, JobStatus, StorageInfo } from "../types";
 
 const STATUS_COLOR: Record<JobStatus, "default" | "info" | "success" | "error"> = {
   queued: "default",
@@ -24,9 +29,83 @@ const STATUS_COLOR: Record<JobStatus, "default" | "info" | "success" | "error"> 
   failed: "error",
 };
 
-function JobCard({ job }: { job: JobInfo }) {
+// Render the settings a job used, from its persisted options. Only arch-relevant
+// fields are shown, so it reflects what actually took effect (and survives log
+// truncation, since options are stored in full).
+function SettingsChips({ options }: { options: Record<string, unknown> }) {
+  const o = options;
+  const arch = String(o.arch ?? "");
+  const stems = o.primary_stem_only
+    ? "primary only"
+    : o.secondary_stem_only
+    ? "secondary only"
+    : "both stems";
+
+  const rows: [string, unknown][] = [
+    ["model", o.model_name],
+    ["arch", arch.toUpperCase()],
+    ["format", o.output_format],
+    ["stems", stems],
+  ];
+  if (o.normalization) rows.push(["normalized", "yes"]);
+  if (o.denoise) rows.push(["denoise", "yes"]);
+  if (Number(o.semitone_shift) !== 0) rows.push(["pitch", `${o.semitone_shift} st`]);
+
+  if (arch === "mdx") {
+    rows.push(["segment", o.segment_size]);
+    rows.push(["overlap", o.overlap ?? "default"]);
+  } else if (arch === "vr") {
+    rows.push(["aggression", o.aggression]);
+    rows.push(["window", o.window_size]);
+    if (o.tta) rows.push(["TTA", "on"]);
+    if (o.post_process) rows.push(["post-proc", "on"]);
+    if (o.high_end_process) rows.push(["high-end", "on"]);
+  } else if (arch === "demucs") {
+    rows.push(["shifts", o.shifts]);
+    rows.push(["overlap", o.overlap ?? "default"]);
+    rows.push(["segment", o.demucs_segment ?? "default"]);
+  }
+
+  return (
+    <Box sx={{ mb: 1.5 }}>
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+        Settings used
+      </Typography>
+      <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+        {rows
+          .filter(([, v]) => v !== undefined && v !== null && v !== "")
+          .map(([k, v]) => (
+            <Chip
+              key={k}
+              size="small"
+              variant="outlined"
+              label={`${k}: ${v}`}
+              sx={{ fontSize: 11, height: 22 }}
+            />
+          ))}
+      </Stack>
+    </Box>
+  );
+}
+
+function JobCard({ job, onDeleted }: { job: JobInfo; onDeleted: () => void }) {
   const [open, setOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const active = job.status === "running" || job.status === "queued";
+
+  const del = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm("Delete this job and its files? This cannot be undone."))
+      return;
+    setDeleting(true);
+    try {
+      await api.deleteJob(job.id);
+      onDeleted();
+    } catch (err) {
+      console.error("delete failed", err);
+      setDeleting(false);
+    }
+  };
 
   return (
     <Accordion
@@ -50,9 +129,21 @@ function JobCard({ job }: { job: JobInfo }) {
                 : job.input_filename || job.id}
             </Typography>
             <Box flexGrow={1} />
+            {job.bytes > 0 && (
+              <Typography variant="caption" color="text.secondary">
+                {humanBytes(job.bytes)}
+              </Typography>
+            )}
             <Typography variant="caption" color="text.secondary">
               {(job.options?.model_name as string) || ""}
             </Typography>
+            <Tooltip title="Delete job + files">
+              <span>
+                <IconButton size="small" color="error" disabled={deleting || active} onClick={del}>
+                  {deleting ? <CircularProgress size={16} /> : <DeleteOutlineIcon fontSize="small" />}
+                </IconButton>
+              </span>
+            </Tooltip>
           </Stack>
           {active && (
             <LinearProgress
@@ -68,6 +159,10 @@ function JobCard({ job }: { job: JobInfo }) {
           <Typography variant="body2" color="error" sx={{ mb: 1 }}>
             {job.error}
           </Typography>
+        )}
+
+        {job.kind === "separation" && job.options && (
+          <SettingsChips options={job.options} />
         )}
 
         {job.outputs.length > 0 && (
@@ -108,13 +203,38 @@ function JobCard({ job }: { job: JobInfo }) {
   );
 }
 
-export function JobsPanel({ jobs }: { jobs: JobInfo[] }) {
+export function JobsPanel({
+  jobs,
+  storage,
+  onChanged,
+}: {
+  jobs: JobInfo[];
+  storage: StorageInfo | null;
+  onChanged: () => void;
+}) {
   return (
     <Card>
       <CardContent>
-        <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 2 }}>
-          Jobs
-        </Typography>
+        <Stack direction="row" alignItems="center" sx={{ mb: 2 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+            Jobs
+          </Typography>
+          <Box flexGrow={1} />
+          {storage && (
+            <Tooltip
+              title={`Input ${humanBytes(storage.uploads_bytes)} · Output ${humanBytes(
+                storage.outputs_bytes
+              )} across ${storage.job_count} job(s)`}
+            >
+              <Chip
+                icon={<StorageIcon />}
+                size="small"
+                variant="outlined"
+                label={`${humanBytes(storage.total_bytes)} on disk`}
+              />
+            </Tooltip>
+          )}
+        </Stack>
         {jobs.length === 0 ? (
           <Typography variant="body2" color="text.secondary">
             No jobs yet. Upload a file and hit Separate.
@@ -122,7 +242,7 @@ export function JobsPanel({ jobs }: { jobs: JobInfo[] }) {
         ) : (
           <Stack spacing={1}>
             {jobs.map((j) => (
-              <JobCard key={j.id} job={j} />
+              <JobCard key={j.id} job={j} onDeleted={onChanged} />
             ))}
           </Stack>
         )}
