@@ -47,6 +47,7 @@ class Job:
     outputs: list = field(default_factory=list)  # list[OutputFile]
     device: Optional[str] = None
     input_bytes: int = 0
+    audio_seconds: float = 0.0
     started_at: Optional[float] = None
     duration_sec: Optional[float] = None
     peak_mem_bytes: int = 0
@@ -90,6 +91,7 @@ class Job:
                 outputs=self._outputs_as_models(),
                 device=self.device,
                 input_bytes=self.input_bytes,
+                audio_seconds=self.audio_seconds,
                 started_at=self.started_at,
                 duration_sec=self.duration_sec,
                 peak_mem_bytes=self.peak_mem_bytes,
@@ -121,6 +123,7 @@ class Job:
                 "outputs": [o.model_dump() for o in self._outputs_as_models()],
                 "device": self.device,
                 "input_bytes": self.input_bytes,
+                "audio_seconds": self.audio_seconds,
                 "started_at": self.started_at,
                 "duration_sec": self.duration_sec,
                 "peak_mem_bytes": self.peak_mem_bytes,
@@ -141,6 +144,7 @@ class Job:
         job.outputs = [OutputFile(**o) for o in d.get("outputs", [])]
         job.device = d.get("device")
         job.input_bytes = d.get("input_bytes", 0)
+        job.audio_seconds = d.get("audio_seconds", 0.0)
         job.started_at = d.get("started_at")
         job.duration_sec = d.get("duration_sec")
         job.peak_mem_bytes = d.get("peak_mem_bytes", 0)

@@ -56,6 +56,7 @@ export interface JobInfo {
   bytes: number;
   device?: string | null;
   input_bytes: number;
+  audio_seconds: number;
   started_at?: number | null;
   duration_sec?: number | null;
   peak_mem_bytes: number;
@@ -71,9 +72,9 @@ export interface StatRow {
   completed: number;
   failed: number;
   cancelled: number;
-  total_mb: number;
+  total_audio_min: number;
   total_sec: number;
-  sec_per_mb: number;
+  sec_per_audio_min: number;
   avg_peak_mb: number;
   max_peak_mb: number;
   last_run: number;

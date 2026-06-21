@@ -175,10 +175,10 @@ function JobCard({
               job.duration_sec != null && (
                 <Tooltip
                   title={
-                    job.input_bytes > 0
-                      ? `${(job.input_bytes / 1048576).toFixed(1)} MB on ${(job.device || "cpu").toUpperCase()} · ${(
-                          job.duration_sec / (job.input_bytes / 1048576)
-                        ).toFixed(2)} s/MB`
+                    job.audio_seconds > 0
+                      ? `${job.audio_seconds.toFixed(0)}s audio on ${(job.device || "cpu").toUpperCase()} · ${(
+                          (job.duration_sec * 60) / job.audio_seconds
+                        ).toFixed(1)} s/min`
                       : ""
                   }
                 >

@@ -268,6 +268,10 @@ def run_separation(audio_path: str, export_path: str, opts: SeparationOptions, j
     if opts.sample_mode:
         audio_path = _make_sample(audio_path, opts.sample_seconds, export_path, job)
 
+    # Duration of the audio actually processed (sample-aware) — the basis for the
+    # s/audio-min throughput metric (format/bitrate-independent, unlike bytes).
+    job.update(audio_seconds=_audio_duration(audio_path))
+
     method = getattr(consts, _ARCH_TO_METHOD[opts.arch.value])
     model = uvr.ModelData(opts.model_name, selected_process_method=method, is_dry_check=True)
 
@@ -344,6 +348,23 @@ def run_separation(audio_path: str, export_path: str, opts: SeparationOptions, j
         stem = m.group(1) if m else fname
         outputs.append(OutputFile(stem=stem, filename=fname, url=f"/api/jobs/{job.id}/files/{fname}"))
     return outputs
+
+
+def _audio_duration(path: str) -> float:
+    """Audio length in seconds (cheap probe; no full decode)."""
+    try:
+        import audioread
+
+        with audioread.audio_open(path) as f:
+            return float(f.duration)
+    except Exception:
+        try:
+            import soundfile as sf
+
+            info = sf.info(path)
+            return info.frames / info.samplerate
+        except Exception:
+            return 0.0
 
 
 def _make_sample(audio_path: str, seconds: int, dest_dir: str, job) -> str:

@@ -111,6 +111,7 @@ class JobInfo(BaseModel):
     bytes: int = 0  # disk used by this job's input + output files
     device: Optional[str] = None  # cpu / cuda / mps the job ran on
     input_bytes: int = 0  # size of the input audio processed
+    audio_seconds: float = 0.0  # duration of audio actually processed (sample-aware)
     started_at: Optional[float] = None  # wall-clock when processing began
     duration_sec: Optional[float] = None  # processing wall-clock time
     peak_mem_bytes: int = 0  # peak RSS of the separation child process
@@ -141,9 +142,9 @@ class StatRow(BaseModel):
     completed: int
     failed: int
     cancelled: int
-    total_mb: float
+    total_audio_min: float
     total_sec: float
-    sec_per_mb: float  # avg processing seconds per input MB (full, non-sample runs)
+    sec_per_audio_min: float  # avg processing seconds per audio minute (full runs)
     avg_peak_mb: float  # average peak memory across runs that reported it
     max_peak_mb: float  # worst-case peak memory seen
     last_run: float

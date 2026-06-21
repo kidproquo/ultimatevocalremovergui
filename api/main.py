@@ -273,6 +273,7 @@ def _record_metric(job, opts: SeparationOptions):
         "arch": opts.arch.value,
         "device": job.device or "cpu",
         "input_bytes": job.input_bytes,
+        "audio_seconds": job.audio_seconds,
         "duration_sec": job.duration_sec,
         "peak_mem_bytes": job.peak_mem_bytes,
         "sample_mode": opts.sample_mode,
@@ -378,14 +379,18 @@ def stats():
                 key = (r.get("model", "?"), r.get("arch", "?"), r.get("device", "cpu"))
                 a = agg.setdefault(key, {
                     "runs": 0, "completed": 0, "failed": 0, "cancelled": 0,
-                    "bytes": 0, "sec": 0.0, "peaks": [], "last": 0.0,
+                    "audio_sec": 0.0, "sec": 0.0, "peaks": [], "last": 0.0,
                 })
                 status = r.get("status", "completed")
                 a["runs"] += 1
                 a[status] = a.get(status, 0) + 1
-                # Throughput only from full (non-sample) completed runs.
-                if status == "completed" and not r.get("sample_mode") and r.get("duration_sec"):
-                    a["bytes"] += r.get("input_bytes", 0)
+                # Throughput only from full (non-sample) completed runs that have a
+                # known audio duration (format-independent, unlike bytes).
+                if (
+                    status == "completed" and not r.get("sample_mode")
+                    and r.get("duration_sec") and r.get("audio_seconds")
+                ):
+                    a["audio_sec"] += r.get("audio_seconds", 0.0)
                     a["sec"] += r.get("duration_sec", 0.0)
                 if r.get("peak_mem_bytes"):
                     a["peaks"].append(r["peak_mem_bytes"])
@@ -394,14 +399,14 @@ def stats():
     mib = 1024 * 1024
     rows = []
     for (model, arch, device), a in agg.items():
-        mb = a["bytes"] / mib
+        audio_min = a["audio_sec"] / 60
         peaks_mb = [p / mib for p in a["peaks"]]
         rows.append(StatRow(
             model=model, arch=arch, device=device,
             runs=a["runs"], completed=a.get("completed", 0),
             failed=a.get("failed", 0), cancelled=a.get("cancelled", 0),
-            total_mb=round(mb, 1), total_sec=round(a["sec"], 1),
-            sec_per_mb=round(a["sec"] / mb, 3) if mb > 0 else 0.0,
+            total_audio_min=round(audio_min, 1), total_sec=round(a["sec"], 1),
+            sec_per_audio_min=round(a["sec"] / audio_min, 1) if audio_min > 0 else 0.0,
             avg_peak_mb=round(sum(peaks_mb) / len(peaks_mb), 0) if peaks_mb else 0.0,
             max_peak_mb=round(max(peaks_mb), 0) if peaks_mb else 0.0,
             last_run=a["last"],

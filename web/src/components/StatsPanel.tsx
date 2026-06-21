@@ -51,8 +51,8 @@ export function StatsPanel({ stats }: { stats: StatsInfo | null }) {
                   </Tooltip>
                 </TableCell>
                 <TableCell align="right">
-                  <Tooltip title="Avg processing seconds per input MB on full runs (lower = faster)">
-                    <span>s / MB</span>
+                  <Tooltip title="Avg processing seconds per minute of audio on full runs (lower = faster; format-independent)">
+                    <span>s / min</span>
                   </Tooltip>
                 </TableCell>
                 <TableCell align="right">
@@ -84,7 +84,9 @@ export function StatsPanel({ stats }: { stats: StatsInfo | null }) {
                     )}
                   </TableCell>
                   <TableCell align="right" sx={{ fontWeight: 600 }}>
-                    {r.sec_per_mb > 0 ? r.sec_per_mb.toFixed(2) : "—"}
+                    <Tooltip title={r.total_audio_min > 0 ? `${r.total_audio_min.toFixed(1)} min processed` : ""}>
+                      <span>{r.sec_per_audio_min > 0 ? r.sec_per_audio_min.toFixed(1) : "—"}</span>
+                    </Tooltip>
                   </TableCell>
                   <TableCell align="right" sx={{ color: "text.secondary" }}>
                     {r.avg_peak_mb > 0
