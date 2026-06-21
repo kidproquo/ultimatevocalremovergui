@@ -27,33 +27,30 @@ export function MiniPlayer({ track, onClose }: { track: NowPlaying | null; onClo
   const [cur, setCur] = useState(0);
   const [dur, setDur] = useState(0);
   const [loading, setLoading] = useState(false);
-  // Object URL of the fetched blob — reused for both playback and download so
-  // the file is pulled over the network exactly once.
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!track || !containerRef.current) return;
     let cancelled = false;
-    let objectUrl: string | null = null;
     setLoading(true);
     setCur(0);
     setDur(0);
-    setBlobUrl(null);
 
-    // Fetch ONCE; wavesurfer v7 otherwise downloads the file twice (audio
-    // element + waveform peaks). A local object URL serves both with no network.
-    fetch(track.url)
-      .then((r) => {
-        if (!r.ok) throw new Error(`${r.status}`);
-        return r.blob();
-      })
-      .then((blob) => {
+    // Stream: the <audio> element plays as it downloads (range requests), and
+    // the waveform is drawn from precomputed server peaks — so playback starts
+    // immediately instead of waiting for the whole file.
+    const audio = new Audio();
+    audio.preload = "auto";
+    audio.src = track.url; // same-origin; basic-auth credentials ride along
+
+    fetch(track.peaksUrl)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))))
+      .then((data: { peaks: number[]; duration: number }) => {
         if (cancelled || !containerRef.current) return;
-        objectUrl = URL.createObjectURL(blob);
-        setBlobUrl(objectUrl);
         const ws = WaveSurfer.create({
           container: containerRef.current,
-          url: objectUrl,
+          media: audio,
+          peaks: [data.peaks],
+          duration: data.duration,
           height: 40,
           waveColor: theme.palette.action.disabled,
           progressColor: theme.palette.primary.main,
@@ -63,19 +60,20 @@ export function MiniPlayer({ track, onClose }: { track: NowPlaying | null; onClo
           barRadius: 2,
         });
         wsRef.current = ws;
-        ws.on("ready", () => {
-          setDur(ws.getDuration());
-          setLoading(false);
-          ws.play();
-        });
+        setDur(data.duration);
+        setLoading(false);
         ws.on("timeupdate", (t: number) => setCur(t));
         ws.on("play", () => setPlaying(true));
         ws.on("pause", () => setPlaying(false));
         ws.on("finish", () => setPlaying(false));
-        ws.on("error", () => setLoading(false));
+        audio.play().catch(() => setPlaying(false));
       })
       .catch(() => {
-        if (!cancelled) setLoading(false);
+        if (cancelled) return;
+        // Peaks unavailable — still stream playback without a waveform.
+        setLoading(false);
+        setDur(audio.duration || 0);
+        audio.play().catch(() => setPlaying(false));
       });
 
     return () => {
@@ -84,7 +82,8 @@ export function MiniPlayer({ track, onClose }: { track: NowPlaying | null; onClo
         wsRef.current.destroy();
         wsRef.current = null;
       }
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      audio.pause();
+      audio.src = "";
     };
   }, [track?.url]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -138,7 +137,7 @@ export function MiniPlayer({ track, onClose }: { track: NowPlaying | null; onClo
           {fmt(cur)} / {fmt(dur)}
         </Typography>
         <Tooltip title="Download">
-          <IconButton size="small" component="a" href={blobUrl ?? track.url} download={track.filename}>
+          <IconButton size="small" component="a" href={track.url} download={track.filename}>
             <DownloadIcon />
           </IconButton>
         </Tooltip>

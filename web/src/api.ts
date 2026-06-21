@@ -19,6 +19,11 @@ const API_BASE = new URL("api/", document.baseURI).toString();
 /** Absolute URL for an API path (e.g. "jobs/abc/files/x.wav"). */
 export const apiUrl = (path: string) => API_BASE + path.replace(/^\//, "");
 
+export interface PeaksData {
+  peaks: number[];
+  duration: number;
+}
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const detail = await res.text();

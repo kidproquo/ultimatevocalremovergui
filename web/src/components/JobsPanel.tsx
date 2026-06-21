@@ -294,6 +294,7 @@ function JobCard({
                   onClick={() =>
                     onPlay({
                       url,
+                      peaksUrl: apiUrl(`jobs/${job.id}/peaks/${encodeURIComponent(o.filename)}`),
                       label: `${job.input_filename || job.id} — ${o.stem}`,
                       filename: o.filename,
                     })

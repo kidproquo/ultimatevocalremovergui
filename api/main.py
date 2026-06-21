@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
+import re
 import shutil
 import uuid
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from . import registry
 from .jobs import store
@@ -456,12 +458,103 @@ def delete_job(job_id: str):
 
 
 @app.get("/api/jobs/{job_id}/files/{filename}")
-def get_job_file(job_id: str, filename: str):
+def get_job_file(job_id: str, filename: str, request: Request):
     safe = os.path.basename(filename)
     path = os.path.join(JOBS_DIR, job_id, safe)
     if not os.path.isfile(path):
         raise HTTPException(404, "File not found")
-    return FileResponse(path, filename=safe)
+
+    size = os.path.getsize(path)
+    media = mimetypes.guess_type(safe)[0] or "application/octet-stream"
+    range_header = request.headers.get("range")
+
+    # Honor byte-range requests so the player can stream + seek instead of
+    # waiting for the whole file (Starlette's FileResponse ignores Range).
+    if range_header:
+        m = re.match(r"bytes=(\d+)-(\d*)", range_header.strip())
+        if m:
+            start = int(m.group(1))
+            end = int(m.group(2)) if m.group(2) else size - 1
+            end = min(end, size - 1)
+            if start > end:
+                raise HTTPException(416, "Requested range not satisfiable")
+            length = end - start + 1
+
+            def stream():
+                with open(path, "rb") as f:
+                    f.seek(start)
+                    remaining = length
+                    while remaining > 0:
+                        chunk = f.read(min(262144, remaining))
+                        if not chunk:
+                            break
+                        remaining -= len(chunk)
+                        yield chunk
+
+            return StreamingResponse(
+                stream(),
+                status_code=206,
+                media_type=media,
+                headers={
+                    "Content-Range": f"bytes {start}-{end}/{size}",
+                    "Accept-Ranges": "bytes",
+                    "Content-Length": str(length),
+                },
+            )
+
+    # No range: full file, but advertise range support for seeking.
+    return FileResponse(path, filename=safe, media_type=media, headers={"Accept-Ranges": "bytes"})
+
+
+@app.get("/api/jobs/{job_id}/peaks/{filename}")
+def job_file_peaks(job_id: str, filename: str, points: int = 800):
+    """Precomputed waveform peaks (cached) so the player can draw a waveform
+    without downloading the whole file — enabling streaming playback."""
+    safe = os.path.basename(filename)
+    path = os.path.join(JOBS_DIR, job_id, safe)
+    if not os.path.isfile(path):
+        raise HTTPException(404, "File not found")
+    cache = path + ".peaks.json"
+    if os.path.isfile(cache):
+        try:
+            with open(cache) as f:
+                return json.load(f)
+        except ValueError:
+            pass
+    result = _compute_peaks(path, points)
+    try:
+        with open(cache, "w") as f:
+            json.dump(result, f)
+    except OSError:
+        pass
+    return result
+
+
+def _compute_peaks(path: str, n: int) -> dict:
+    import numpy as np
+
+    n = max(100, min(4000, n))
+    try:
+        import soundfile as sf
+
+        info = sf.info(path)
+        block = max(1, info.frames // n)
+        peaks: list[float] = []
+        with sf.SoundFile(path) as f:
+            while True:
+                data = f.read(block, dtype="float32", always_2d=True)
+                if len(data) == 0:
+                    break
+                peaks.append(round(float(np.max(np.abs(data))), 4) if len(data) else 0.0)
+        return {"peaks": peaks, "duration": info.frames / info.samplerate}
+    except Exception:
+        # MP3 (or anything soundfile can't block-read) via librosa.
+        import librosa
+
+        y, sr = librosa.load(path, sr=None, mono=True)
+        block = max(1, len(y) // n)
+        peaks = [round(float(np.max(np.abs(y[i : i + block]))), 4) for i in range(0, len(y), block)]
+        return {"peaks": peaks, "duration": float(len(y)) / sr}
 
 
 @app.delete("/api/jobs/{job_id}/files/{filename}")
@@ -472,6 +565,11 @@ def delete_job_file(job_id: str, filename: str):
     if not os.path.isfile(path):
         raise HTTPException(404, "File not found")
     os.remove(path)
+    # Drop the cached waveform peaks too, if any.
+    try:
+        os.remove(path + ".peaks.json")
+    except OSError:
+        pass
     job = store.get(job_id)
     if job:
         # Keep the record but mark it deleted, so the UI can show a disabled chip.

@@ -41,7 +41,8 @@ export interface ModelDetail {
 export type HelpTexts = Record<string, string>;
 
 export interface NowPlaying {
-  url: string;
+  url: string; // streaming audio URL
+  peaksUrl: string; // precomputed waveform peaks JSON
   label: string; // shown in the player (e.g. "song — Vocals")
   filename: string; // for the download
 }
