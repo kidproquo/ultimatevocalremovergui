@@ -97,6 +97,13 @@ class StorageInfo(BaseModel):
     job_count: int
 
 
+class InputInfo(BaseModel):
+    id: str
+    filename: str
+    bytes: int
+    created_at: float
+
+
 class DownloadRequest(BaseModel):
     arch: Arch
     name: str = Field(..., description="Display name from the download list")

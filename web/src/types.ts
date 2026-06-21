@@ -48,3 +48,10 @@ export interface StorageInfo {
   outputs_bytes: number;
   job_count: number;
 }
+
+export interface InputInfo {
+  id: string;
+  filename: string;
+  bytes: number;
+  created_at: number;
+}

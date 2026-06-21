@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import uuid
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +14,7 @@ from .jobs import store
 from .schemas import (
     Arch,
     DownloadRequest,
+    InputInfo,
     JobInfo,
     ModelInfo,
     OutputFormat,
@@ -23,9 +25,11 @@ from .separation import run_separation
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.environ.get("UVR_DATA_DIR", os.path.join(REPO_ROOT, "data"))
-UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
+UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")  # legacy per-job uploads (pre-inputs)
+INPUTS_DIR = os.path.join(DATA_DIR, "inputs")  # reusable, persistent input files
 JOBS_DIR = os.path.join(DATA_DIR, "jobs")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(INPUTS_DIR, exist_ok=True)
 os.makedirs(JOBS_DIR, exist_ok=True)
 
 # Persist job records to the data volume and recover prior history on startup so
@@ -57,6 +61,60 @@ def system():
     return device_info()
 
 
+# --- Reusable input files ---------------------------------------------------
+# An input is a single audio file under INPUTS_DIR/<id>/<filename>. It persists
+# independently of jobs so one upload can feed many separations.
+
+def _input_resolve(input_id: str):
+    """Return (path, filename) for an input id, or None."""
+    d = os.path.join(INPUTS_DIR, os.path.basename(input_id))
+    if not os.path.isdir(d):
+        return None
+    files = [f for f in os.listdir(d) if os.path.isfile(os.path.join(d, f))]
+    if not files:
+        return None
+    return os.path.join(d, files[0]), files[0]
+
+
+def _input_info(input_id: str) -> InputInfo | None:
+    resolved = _input_resolve(input_id)
+    if not resolved:
+        return None
+    path, filename = resolved
+    st = os.stat(path)
+    return InputInfo(id=input_id, filename=filename, bytes=st.st_size, created_at=st.st_mtime)
+
+
+def _save_input(file: UploadFile) -> InputInfo:
+    input_id = uuid.uuid4().hex[:12]
+    d = os.path.join(INPUTS_DIR, input_id)
+    os.makedirs(d, exist_ok=True)
+    safe_name = os.path.basename(file.filename or "input")
+    with open(os.path.join(d, safe_name), "wb") as out:
+        shutil.copyfileobj(file.file, out)
+    return _input_info(input_id)  # type: ignore[return-value]
+
+
+@app.get("/api/inputs", response_model=list[InputInfo])
+def list_inputs():
+    infos = [_input_info(e.name) for e in os.scandir(INPUTS_DIR) if e.is_dir()]
+    return sorted((i for i in infos if i), key=lambda i: i.created_at, reverse=True)
+
+
+@app.post("/api/inputs", response_model=InputInfo)
+async def upload_input(file: UploadFile = File(...)):
+    return _save_input(file)
+
+
+@app.delete("/api/inputs/{input_id}")
+def delete_input(input_id: str):
+    d = os.path.join(INPUTS_DIR, os.path.basename(input_id))
+    if not os.path.isdir(d):
+        raise HTTPException(404, "Input not found")
+    shutil.rmtree(d, ignore_errors=True)
+    return {"deleted": input_id}
+
+
 @app.get("/api/models", response_model=list[ModelInfo])
 def get_models():
     return registry.list_models()
@@ -76,7 +134,8 @@ def download(req: DownloadRequest):
 
 @app.post("/api/separate", response_model=JobInfo)
 async def separate(
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
+    input_id: str | None = Form(None),
     arch: Arch = Form(...),
     model_name: str = Form(...),
     primary_stem_only: bool = Form(False),
@@ -117,18 +176,27 @@ async def separate(
         use_gpu=use_gpu,
     )
 
+    # Resolve the audio source: reuse a saved input, or save a new upload as a
+    # reusable input (so it's retained for further jobs). The input is NOT tied
+    # to the job — deleting the job leaves the input in place.
+    if input_id:
+        resolved = _input_resolve(input_id)
+        if not resolved:
+            raise HTTPException(404, f"Input '{input_id}' not found")
+        audio_path, input_filename = resolved
+    elif file is not None:
+        info = _save_input(file)
+        resolved = _input_resolve(info.id)
+        audio_path, input_filename = resolved  # type: ignore[misc]
+    else:
+        raise HTTPException(400, "Provide either a file upload or an input_id")
+
     job = store.create(
         "separation",
-        input_filename=file.filename,
+        input_filename=input_filename,
         options=opts.model_dump(mode="json"),
         message="Queued",
     )
-
-    # Persist the upload before returning (UploadFile is closed after response).
-    safe_name = os.path.basename(file.filename or "input")
-    audio_path = os.path.join(UPLOAD_DIR, f"{job.id}_{safe_name}")
-    with open(audio_path, "wb") as out:
-        shutil.copyfileobj(file.file, out)
 
     export_path = os.path.join(JOBS_DIR, job.id)
 
@@ -163,8 +231,20 @@ def _upload_files(job_id: str) -> list[str]:
     ]
 
 
+def _tree_size(path: str) -> int:
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for f in files:
+            try:
+                total += os.path.getsize(os.path.join(root, f))
+            except OSError:
+                pass
+    return total
+
+
 def _job_bytes(job_id: str) -> int:
-    """Disk used by a job: its output dir (minus job.json) + its uploaded input."""
+    """Disk used by a job: its output files (minus job.json) + any legacy
+    per-job upload. Reusable inputs are shared and accounted separately."""
     out = _dir_size(os.path.join(JOBS_DIR, job_id))
     meta = os.path.join(JOBS_DIR, job_id, "job.json")
     if os.path.isfile(meta):
@@ -186,12 +266,8 @@ def list_jobs():
 @app.get("/api/storage", response_model=StorageInfo)
 def storage():
     jobs = store.list()
-    uploads = sum(
-        os.path.getsize(f)
-        for j in jobs
-        for f in _upload_files(j.id)
-        if os.path.isfile(f)
-    )
+    # Inputs: reusable inputs + any legacy per-job uploads.
+    inputs = _tree_size(INPUTS_DIR) + _tree_size(UPLOAD_DIR)
     outputs = 0
     for j in jobs:
         d = _dir_size(os.path.join(JOBS_DIR, j.id))
@@ -200,8 +276,8 @@ def storage():
             d -= os.path.getsize(meta)
         outputs += max(0, d)
     return StorageInfo(
-        total_bytes=uploads + outputs,
-        uploads_bytes=uploads,
+        total_bytes=inputs + outputs,
+        uploads_bytes=inputs,
         outputs_bytes=outputs,
         job_count=len(jobs),
     )

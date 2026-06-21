@@ -26,8 +26,9 @@ import DownloadIcon from "@mui/icons-material/Download";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import TuneIcon from "@mui/icons-material/Tune";
-import { api } from "../api";
-import type { Arch, ModelInfo } from "../types";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import { api, humanBytes } from "../api";
+import type { Arch, InputInfo, ModelInfo } from "../types";
 
 const ARCHS: { value: Arch; label: string }[] = [
   { value: "mdx", label: "MDX-Net" },
@@ -40,13 +41,25 @@ const WINDOW_SIZES = [320, 512, 1024];
 
 interface Props {
   models: ModelInfo[];
+  inputs: InputInfo[];
   onModelsChanged: () => void;
+  onInputsChanged: () => void;
   onJobCreated: () => void;
 }
 
-export function SeparationForm({ models, onModelsChanged, onJobCreated }: Props) {
+const NEW_INPUT = "__new__";
+
+export function SeparationForm({
+  models,
+  inputs,
+  onModelsChanged,
+  onInputsChanged,
+  onJobCreated,
+}: Props) {
   const [arch, setArch] = useState<Arch>("mdx");
   const [modelName, setModelName] = useState("");
+  // Input source: an existing input id, or NEW_INPUT (upload a new file).
+  const [inputId, setInputId] = useState<string>(NEW_INPUT);
   const [file, setFile] = useState<File | null>(null);
   const [format, setFormat] = useState("WAV");
   const [primaryOnly, setPrimaryOnly] = useState(false);
@@ -79,9 +92,13 @@ export function SeparationForm({ models, onModelsChanged, onJobCreated }: Props)
   );
   const selected = archModels.find((m) => m.name === modelName);
 
+  const usingNew = inputId === NEW_INPUT;
+
   const submit = async () => {
     setError(null);
-    if (!file) return setError("Choose an audio file first.");
+    if (usingNew && !file) return setError("Choose an audio file to upload.");
+    if (!usingNew && !inputs.some((i) => i.id === inputId))
+      return setError("Select an input.");
     if (!modelName) return setError("Choose a model.");
     if (!selected?.installed)
       return setError("Model is not installed — download it first.");
@@ -89,7 +106,9 @@ export function SeparationForm({ models, onModelsChanged, onJobCreated }: Props)
     setSubmitting(true);
     try {
       const form = new FormData();
-      form.append("file", file);
+      // Reuse an existing input, or upload a new one (retained for future jobs).
+      if (usingNew && file) form.append("file", file);
+      else form.append("input_id", inputId);
       form.append("arch", arch);
       form.append("model_name", modelName);
       form.append("output_format", format);
@@ -118,10 +137,28 @@ export function SeparationForm({ models, onModelsChanged, onJobCreated }: Props)
 
       await api.separate(form);
       onJobCreated();
+      // A new upload became a reusable input — refresh the list.
+      if (usingNew) {
+        setFile(null);
+        onInputsChanged();
+      }
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const deleteInput = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm("Delete this input file? Existing job outputs are kept."))
+      return;
+    try {
+      await api.deleteInput(id);
+      if (inputId === id) setInputId(NEW_INPUT);
+      onInputsChanged();
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
     }
   };
 
@@ -211,20 +248,58 @@ export function SeparationForm({ models, onModelsChanged, onJobCreated }: Props)
             </Tooltip>
           </Box>
 
-          <Button
-            component="label"
-            variant="outlined"
-            startIcon={<UploadFileIcon />}
-            sx={{ justifyContent: "flex-start" }}
-          >
-            {file ? file.name : "Choose audio file"}
-            <input
-              hidden
-              type="file"
-              accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            />
-          </Button>
+          {/* Input source: reuse a saved input or upload a new one */}
+          <FormControl fullWidth size="small">
+            <InputLabel>Input</InputLabel>
+            <Select
+              label="Input"
+              value={inputId}
+              onChange={(e) => setInputId(e.target.value)}
+              renderValue={(val) => {
+                if (val === NEW_INPUT) return "⬆ Upload new file…";
+                const inp = inputs.find((i) => i.id === val);
+                return inp ? `${inp.filename} (${humanBytes(inp.bytes)})` : "Select input";
+              }}
+            >
+              <MenuItem value={NEW_INPUT}>⬆ Upload new file…</MenuItem>
+              {inputs.map((i) => (
+                <MenuItem key={i.id} value={i.id}>
+                  <Box sx={{ display: "flex", alignItems: "center", width: "100%", gap: 1 }}>
+                    <Box sx={{ flexGrow: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {i.filename}
+                    </Box>
+                    <Typography variant="caption" color="text.secondary">
+                      {humanBytes(i.bytes)}
+                    </Typography>
+                    <IconButton
+                      size="small"
+                      color="error"
+                      onClick={(e) => deleteInput(i.id, e)}
+                    >
+                      <DeleteOutlineIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {usingNew && (
+            <Button
+              component="label"
+              variant="outlined"
+              startIcon={<UploadFileIcon />}
+              sx={{ justifyContent: "flex-start" }}
+            >
+              {file ? file.name : "Choose audio file"}
+              <input
+                hidden
+                type="file"
+                accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
+            </Button>
+          )}
 
           <FormControl fullWidth size="small">
             <InputLabel>Output format</InputLabel>

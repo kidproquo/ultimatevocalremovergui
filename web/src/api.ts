@@ -1,4 +1,11 @@
-import type { Arch, JobInfo, ModelInfo, StorageInfo, SystemInfo } from "./types";
+import type {
+  Arch,
+  InputInfo,
+  JobInfo,
+  ModelInfo,
+  StorageInfo,
+  SystemInfo,
+} from "./types";
 
 // Derive the API base from the document's base URL so the app works both at a
 // domain root (https://host/ -> https://host/api/) and under a sub-path
@@ -40,6 +47,17 @@ export const api = {
     fetch(apiUrl(`jobs/${id}`), { method: "DELETE" }).then(json<{ deleted: string }>),
 
   getStorage: () => fetch(apiUrl("storage")).then(json<StorageInfo>),
+
+  listInputs: () => fetch(apiUrl("inputs")).then(json<InputInfo[]>),
+
+  uploadInput: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return fetch(apiUrl("inputs"), { method: "POST", body: form }).then(json<InputInfo>);
+  },
+
+  deleteInput: (id: string) =>
+    fetch(apiUrl(`inputs/${id}`), { method: "DELETE" }).then(json<{ deleted: string }>),
 };
 
 export function humanBytes(n: number): string {

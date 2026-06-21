@@ -13,13 +13,14 @@ import GraphicEqIcon from "@mui/icons-material/GraphicEq";
 import MemoryIcon from "@mui/icons-material/Memory";
 import BoltIcon from "@mui/icons-material/Bolt";
 import { api } from "./api";
-import type { JobInfo, ModelInfo, StorageInfo, SystemInfo } from "./types";
+import type { InputInfo, JobInfo, ModelInfo, StorageInfo, SystemInfo } from "./types";
 import { SeparationForm } from "./components/SeparationForm";
 import { JobsPanel } from "./components/JobsPanel";
 
 export function App() {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [jobs, setJobs] = useState<JobInfo[]>([]);
+  const [inputs, setInputs] = useState<InputInfo[]>([]);
   const [system, setSystem] = useState<SystemInfo | null>(null);
   const [storage, setStorage] = useState<StorageInfo | null>(null);
 
@@ -40,13 +41,22 @@ export function App() {
     }
   }, []);
 
+  const refreshInputs = useCallback(async () => {
+    try {
+      setInputs(await api.listInputs());
+    } catch (e) {
+      console.error("Failed to load inputs", e);
+    }
+  }, []);
+
   useEffect(() => {
     refreshModels();
     refreshJobs();
+    refreshInputs();
     api.getSystem().then(setSystem).catch((e) => console.error("system info", e));
     const t = setInterval(refreshJobs, 2000);
     return () => clearInterval(t);
-  }, [refreshModels, refreshJobs]);
+  }, [refreshModels, refreshJobs, refreshInputs]);
 
   const gpu = system?.gpu_available ?? false;
   const deviceLabel = system
@@ -89,8 +99,13 @@ export function App() {
           <Grid item xs={12} md={5}>
             <SeparationForm
               models={models}
+              inputs={inputs}
               onModelsChanged={refreshModels}
-              onJobCreated={refreshJobs}
+              onInputsChanged={refreshInputs}
+              onJobCreated={() => {
+                refreshJobs();
+                refreshInputs();
+              }}
             />
           </Grid>
           <Grid item xs={12} md={7}>
