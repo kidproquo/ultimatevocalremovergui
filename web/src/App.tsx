@@ -23,6 +23,8 @@ export function App() {
   const [inputs, setInputs] = useState<InputInfo[]>([]);
   const [system, setSystem] = useState<SystemInfo | null>(null);
   const [storage, setStorage] = useState<StorageInfo | null>(null);
+  // One-shot: settings lifted from a past job to prefill the form.
+  const [preset, setPreset] = useState<Record<string, unknown> | null>(null);
 
   const refreshModels = useCallback(async () => {
     try {
@@ -100,6 +102,8 @@ export function App() {
             <SeparationForm
               models={models}
               inputs={inputs}
+              preset={preset}
+              onPresetApplied={() => setPreset(null)}
               onModelsChanged={refreshModels}
               onInputsChanged={refreshInputs}
               onJobCreated={() => {
@@ -109,7 +113,12 @@ export function App() {
             />
           </Grid>
           <Grid item xs={12} md={7}>
-            <JobsPanel jobs={jobs} storage={storage} onChanged={refreshJobs} />
+            <JobsPanel
+              jobs={jobs}
+              storage={storage}
+              onChanged={refreshJobs}
+              onReuse={setPreset}
+            />
           </Grid>
         </Grid>
       </Container>

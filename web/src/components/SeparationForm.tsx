@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Accordion,
   AccordionDetails,
@@ -42,6 +42,8 @@ const WINDOW_SIZES = [320, 512, 1024];
 interface Props {
   models: ModelInfo[];
   inputs: InputInfo[];
+  preset: Record<string, unknown> | null;
+  onPresetApplied: () => void;
   onModelsChanged: () => void;
   onInputsChanged: () => void;
   onJobCreated: () => void;
@@ -52,6 +54,8 @@ const NEW_INPUT = "__new__";
 export function SeparationForm({
   models,
   inputs,
+  preset,
+  onPresetApplied,
   onModelsChanged,
   onInputsChanged,
   onJobCreated,
@@ -85,6 +89,39 @@ export function SeparationForm({
   const [submitting, setSubmitting] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Apply settings lifted from a past job (one-shot). Input choice is left as-is
+  // so the user picks which audio to run these settings against.
+  useEffect(() => {
+    if (!preset) return;
+    const s = (k: string, fallback = "") =>
+      preset[k] !== undefined && preset[k] !== null ? String(preset[k]) : fallback;
+    const b = (k: string) => preset[k] === true || preset[k] === "true";
+
+    if (preset.arch) setArch(preset.arch as Arch);
+    if (preset.model_name) setModelName(String(preset.model_name));
+    if (preset.output_format) setFormat(String(preset.output_format));
+    setPrimaryOnly(b("primary_stem_only"));
+    setSecondaryOnly(b("secondary_stem_only"));
+    setNormalization(b("normalization"));
+    setDenoise(b("denoise"));
+    setPitchShift(s("semitone_shift", "0"));
+    // MDX
+    setSegmentSize(s("segment_size", "256"));
+    setOverlap(preset.overlap != null ? String(preset.overlap) : "");
+    // VR
+    setAggression(s("aggression", "10"));
+    setWindowSize(s("window_size", "512"));
+    setTta(b("tta"));
+    setPostProcess(b("post_process"));
+    setHighEnd(b("high_end_process"));
+    // Demucs
+    setShifts(s("shifts", "2"));
+    setDemucsSegment(preset.demucs_segment != null ? String(preset.demucs_segment) : "");
+
+    setError(null);
+    onPresetApplied();
+  }, [preset, onPresetApplied]);
 
   const archModels = useMemo(
     () => models.filter((m) => m.arch === arch),

@@ -19,6 +19,7 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import DownloadIcon from "@mui/icons-material/Download";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import StorageIcon from "@mui/icons-material/Storage";
+import ReplayIcon from "@mui/icons-material/Replay";
 import { api, apiUrl, humanBytes } from "../api";
 import type { JobInfo, JobStatus, StorageInfo } from "../types";
 
@@ -88,10 +89,19 @@ function SettingsChips({ options }: { options: Record<string, unknown> }) {
   );
 }
 
-function JobCard({ job, onDeleted }: { job: JobInfo; onDeleted: () => void }) {
+function JobCard({
+  job,
+  onDeleted,
+  onReuse,
+}: {
+  job: JobInfo;
+  onDeleted: () => void;
+  onReuse: (options: Record<string, unknown>) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const active = job.status === "running" || job.status === "queued";
+  const canReuse = job.kind === "separation" && !!job.options;
 
   const del = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -137,6 +147,20 @@ function JobCard({ job, onDeleted }: { job: JobInfo; onDeleted: () => void }) {
             <Typography variant="caption" color="text.secondary">
               {(job.options?.model_name as string) || ""}
             </Typography>
+            {canReuse && (
+              <Tooltip title="Reuse these settings in the form">
+                <IconButton
+                  size="small"
+                  color="primary"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onReuse(job.options as Record<string, unknown>);
+                  }}
+                >
+                  <ReplayIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
             <Tooltip title="Delete job + files">
               <span>
                 <IconButton size="small" color="error" disabled={deleting || active} onClick={del}>
@@ -207,10 +231,12 @@ export function JobsPanel({
   jobs,
   storage,
   onChanged,
+  onReuse,
 }: {
   jobs: JobInfo[];
   storage: StorageInfo | null;
   onChanged: () => void;
+  onReuse: (options: Record<string, unknown>) => void;
 }) {
   return (
     <Card>
@@ -242,7 +268,7 @@ export function JobsPanel({
         ) : (
           <Stack spacing={1}>
             {jobs.map((j) => (
-              <JobCard key={j.id} job={j} onDeleted={onChanged} />
+              <JobCard key={j.id} job={j} onDeleted={onChanged} onReuse={onReuse} />
             ))}
           </Stack>
         )}

@@ -27,8 +27,10 @@ _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="uvr-worker")
 
 _AUDIO_EXTS = (".wav", ".flac", ".mp3")
 _STEM_RE = re.compile(r"_\(([^)]+)\)\.[^.]+$")
-# Cap the persisted log so a chatty inference run can't bloat job.json.
+# Cap the persisted log so a chatty inference run can't bloat job.json. Keep a
+# chunk of the HEAD (the settings summary) plus the tail.
 _MAX_PERSIST_LOG = 16_000
+_PERSIST_LOG_HEAD = 2_000
 
 
 @dataclass
@@ -88,7 +90,14 @@ class Job:
     def to_dict(self) -> dict:
         """JSON-serializable snapshot for persistence (no Lock, bounded log)."""
         with self._lock:
-            log = self.log[-_MAX_PERSIST_LOG:]
+            # Keep the HEAD (settings summary lives there) plus the tail, so the
+            # settings survive truncation on long runs.
+            if len(self.log) > _MAX_PERSIST_LOG:
+                head = self.log[:_PERSIST_LOG_HEAD]
+                tail = self.log[-(_MAX_PERSIST_LOG - _PERSIST_LOG_HEAD):]
+                log = f"{head}\n…[log truncated]…\n{tail}"
+            else:
+                log = self.log
             return {
                 "id": self.id,
                 "kind": self.kind,
