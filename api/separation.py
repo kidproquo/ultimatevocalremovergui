@@ -558,6 +558,7 @@ def run_separation_isolated(audio_path: str, export_path: str, opts: SeparationO
     finally:
         if peak_rss:
             job.update(peak_mem_bytes=peak_rss)
+            job.append_log(f"Peak memory: {peak_rss / (1024 * 1024):.0f} MB\n")
         with _proc_lock:
             _procs.pop(job.id, None)
             was_cancelled = job.id in _cancelled

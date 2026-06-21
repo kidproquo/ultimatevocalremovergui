@@ -106,9 +106,12 @@ function JobCard({
       disableGutters
       sx={{ bgcolor: "background.default" }}
     >
-      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-        <Box sx={{ width: "100%" }}>
-          <Stack direction="row" spacing={1} alignItems="center">
+      <AccordionSummary
+        expandIcon={<ExpandMoreIcon />}
+        sx={{ "& .MuiAccordionSummary-content": { minWidth: 0, overflow: "hidden" } }}
+      >
+        <Box sx={{ width: "100%", minWidth: 0 }}>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
             <Chip
               size="small"
               label={job.status}
@@ -125,37 +128,35 @@ function JobCard({
                 ? job.message
                 : job.input_filename || job.id}
             </Typography>
-            {elapsed != null ? (
-              <Typography
-                variant="caption"
-                noWrap
-                sx={{ color: "info.main", fontVariantNumeric: "tabular-nums", flexShrink: 0 }}
-              >
-                ⏱ {fmtSecs(elapsed)}
-                {job.device ? ` · ${job.device.toUpperCase()}` : ""}
-              </Typography>
-            ) : (
-              job.duration_sec != null && (
-                <Tooltip
-                  title={
-                    job.audio_seconds > 0
-                      ? `${job.audio_seconds.toFixed(0)}s audio on ${(job.device || "cpu").toUpperCase()} · ${(
-                          (job.duration_sec * 60) / job.audio_seconds
-                        ).toFixed(1)} s/min`
-                      : ""
-                  }
-                >
-                  <Typography variant="caption" color="text.secondary" noWrap sx={{ flexShrink: 0 }}>
-                    {fmtSecs(job.duration_sec)}
-                    {job.device ? ` · ${job.device.toUpperCase()}` : ""}
-                  </Typography>
-                </Tooltip>
-              )
-            )}
-            {/* Secondary metadata — hidden on phones (also in the details/log) */}
+            {/* Time + secondary metadata — hidden on phones (also in the details/log) */}
             <Box
-              sx={{ display: { xs: "none", sm: "flex" }, alignItems: "center", gap: 1, minWidth: 0 }}
+              sx={{ display: { xs: "none", sm: "flex" }, alignItems: "center", gap: 1, flexShrink: 0 }}
             >
+              {elapsed != null ? (
+                <Typography
+                  variant="caption"
+                  noWrap
+                  sx={{ color: "info.main", fontVariantNumeric: "tabular-nums" }}
+                >
+                  ⏱ {fmtSecs(elapsed)}
+                </Typography>
+              ) : (
+                job.duration_sec != null && (
+                  <Tooltip
+                    title={
+                      job.audio_seconds > 0
+                        ? `${job.audio_seconds.toFixed(0)}s audio on ${(job.device || "cpu").toUpperCase()} · ${(
+                            (job.duration_sec * 60) / job.audio_seconds
+                          ).toFixed(1)} s/min`
+                        : ""
+                    }
+                  >
+                    <Typography variant="caption" color="text.secondary" noWrap>
+                      {fmtSecs(job.duration_sec)}
+                    </Typography>
+                  </Tooltip>
+                )
+              )}
               {job.peak_mem_bytes > 0 && (
                 <Tooltip title="Peak memory used by this job">
                   <Typography variant="caption" color="text.secondary" noWrap>
