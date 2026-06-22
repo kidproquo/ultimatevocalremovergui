@@ -6,11 +6,13 @@ import mimetypes
 import os
 import re
 import shutil
+import sys
 import uuid
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from . import registry
 from .jobs import store
@@ -582,3 +584,26 @@ def delete_job_file(job_id: str, filename: str):
         job.update(outputs=outs)
         store.persist(job)
     return {"deleted": safe}
+
+
+# --- Serve the built web UI (single-process native run) ---------------------
+# When web/dist exists, mount it so `uvicorn api.main:app` serves both the API
+# and the SPA on one port — no nginx needed. In Docker the api image has no
+# web/dist (nginx serves the SPA there), so this is a harmless no-op. Mounted
+# last so it never shadows the /api/* routes.
+
+def _web_dist() -> str | None:
+    base = getattr(sys, "_MEIPASS", REPO_ROOT)  # PyInstaller bundle, else source
+    for cand in (
+        os.environ.get("UVR_WEB_DIST"),
+        os.path.join(base, "web", "dist"),
+        os.path.join(REPO_ROOT, "web", "dist"),
+    ):
+        if cand and os.path.isdir(cand):
+            return cand
+    return None
+
+
+_dist = _web_dist()
+if _dist:
+    app.mount("/", StaticFiles(directory=_dist, html=True), name="spa")

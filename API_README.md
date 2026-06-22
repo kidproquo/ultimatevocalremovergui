@@ -91,20 +91,68 @@ Workflow in the UI:
 3. Choose an **audio file**, set options, and click **Separate**.
 4. Watch progress in the **Jobs** panel and download the resulting stems.
 
-## Run on the host (venv, no Docker)
+## Run natively (no Docker) — single process, one port
+
+When `web/dist` exists, the FastAPI app serves both the API **and** the UI, so a
+native run is one process on one port (no nginx). `run_web.py` starts the server
+and opens your browser.
 
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch
-.venv/bin/pip install -r requirements.txt -r requirements-api.txt
-.venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000
+# 1. build the UI once
+cd web && npm ci && npm run build && cd ..
+
+# 2. Python deps (CPU). Use a venv.
+python -m venv .venv
+# Linux/macOS: source .venv/bin/activate   |   Windows: .venv\Scripts\activate
+pip install --index-url https://download.pytorch.org/whl/cpu torch==2.2.2 torchvision==0.17.2
+pip install -r requirements.txt -r requirements-api.txt
+
+# 3. launch (opens http://127.0.0.1:8000)
+python run_web.py
 ```
 
-`ffmpeg` must be installed for MP3/FLAC output. For the web UI in dev:
+Prerequisites: **ffmpeg** on `PATH` (for MP3/FLAC output) and a C toolchain (the
+`diffq` dependency builds a small C extension).
 
-```bash
-cd web && npm install && npm run dev     # http://localhost:5173, proxies /api -> :8000
+For UI development with hot-reload instead of a build, run the Vite dev server
+(`cd web && npm run dev` → `http://localhost:5173`, proxies `/api` → `:8000`)
+alongside `uvicorn api.main:app`.
+
+### Windows
+
+The python.org installer **includes tkinter** (which UVR imports), so no extra
+system package is needed. Then:
+
+1. Install **ffmpeg** and add it to `PATH` (or drop `ffmpeg.exe` next to the app).
+2. Install **Microsoft C++ Build Tools** (Desktop C++ workload) — required to
+   build `diffq`.
+3. Run the three steps above (`npm run build`, `pip install …`, `python run_web.py`).
+   On Windows, `pip install torch==2.2.2 torchvision==0.17.2` (no index URL) is
+   the CPU build.
+
+The separation engine isolates each job in a spawned child process; this is
+native to Windows and handled by `multiprocessing.freeze_support()` in
+`run_web.py`.
+
+### Standalone Windows build (PyInstaller)
+
+`packaging/uvr_web.spec` bundles the launcher, engine, and UI into a
+double-clickable app (server + UI that opens in the browser). It uses UVR's
+`sys.frozen`/`_MEIPASS` conventions, and `run_web.py` points `UVR_DATA_DIR` next
+to the executable so models and job outputs are written to a writable location.
+
+The GitHub Actions workflow `.github/workflows/build-windows.yml` builds it on a
+`windows-latest` runner and uploads the artifact (run it via *Actions → Build
+Windows → Run workflow*). Building locally:
+
+```powershell
+cd web; npm ci; npm run build; cd ..
+pip install pyinstaller
+pyinstaller packaging/uvr_web.spec      # -> dist/uvr-web/uvr-web.exe
 ```
+
+Bundling torch/onnxruntime into a frozen app is fiddly; the spec is a working
+starting point and may need per-platform hook tweaks.
 
 ## API
 
