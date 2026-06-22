@@ -21,3 +21,6 @@ models/Demucs_Models/v3_v4_repo/*.yaml
 # Frontend
 web/node_modules/
 web/dist/
+
+# Claude Code project guidance (local only, not part of the contribution)
+CLAUDE.md
