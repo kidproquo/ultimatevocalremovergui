@@ -93,9 +93,20 @@ Workflow in the UI:
 
 ## Run natively (no Docker) — single process, one port
 
-When `web/dist` exists, the FastAPI app serves both the API **and** the UI, so a
-native run is one process on one port (no nginx). `run_web.py` starts the server
-and opens your browser.
+**Easiest:** use the run script — it creates a venv, installs deps, builds the
+UI, makes the data folders, sets the env, and launches (opens your browser):
+
+```bash
+./run.sh          # Linux / macOS
+run.bat           # Windows (double-click or from a terminal)
+```
+
+Override any setting via env, e.g. `UVR_PORT=9000 ./run.sh`. Settings live at the
+top of the script (host/port, data dir, threads, GPU, open-browser).
+
+Manual steps (what the scripts do): when `web/dist` exists, the FastAPI app
+serves both the API **and** the UI, so a native run is one process on one port
+(no nginx). `run_web.py` starts the server and opens your browser.
 
 ```bash
 # 1. build the UI once
